@@ -47,7 +47,6 @@ class ProfileSettings(models.Model):
     # Admin identity fields
     email = models.EmailField(default='', blank=True)
     is_admin = models.BooleanField(default=False)
-    is_subadmin = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
 
     def save(self, *args, **kwargs):
@@ -55,8 +54,6 @@ class ProfileSettings(models.Model):
             self.user.email = self.email
         if self.is_admin:
             self.user.is_admin = True
-        if self.is_subadmin:
-            self.user.is_subadmin = True
         self.user.is_active = self.is_active
         self.user.save()
         super().save(*args, **kwargs)

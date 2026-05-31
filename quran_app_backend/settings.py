@@ -105,6 +105,13 @@ WEBHOOK_KEY = os.getenv("WEBHOOK_KEY")
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "[EMAIL_ADDRESS]")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "AdminPass123!")
 
+# EmailJS Configuration for password reset emails
+EMAILJS_SERVICE_ID = os.getenv("EMAILJS_SERVICE_ID")
+EMAILJS_TEMPLATE_ID = os.getenv("EMAILJS_TEMPLATE_ID")
+EMAILJS_PUBLIC_KEY = os.getenv("EMAILJS_PUBLIC_KEY")
+EMAILJS_PRIVATE_KEY = os.getenv("EMAILJS_PRIVATE_KEY")
+EMAILJS_SENDER_EMAIL = os.getenv("EMAILJS_SENDER_EMAIL")
+
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",

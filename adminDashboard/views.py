@@ -12,6 +12,7 @@ from drf_yasg.utils import swagger_auto_schema
 from users.models import User
 from django.utils import timezone
 from datetime import timedelta
+from users.email_service import send_password_reset_email
 from users.serializers import UserLoginSerializer, UserSerializer, ForgotPasswordSerializer, ChangePasswordSerializer
 from .models import Overview, UserManagement, ProfileSettings, LibraryContent, SubscriptionPlan
 from .serializers import OverviewSerializer, UserManagementSerializer, ProfileSettingsSerializer, LibraryContentSerializer, SubscriptionPlanSerializer
@@ -152,6 +153,7 @@ class AdminLoginView(APIView):
     @swagger_auto_schema(request_body=UserLoginSerializer)
     def post(self, request):
         """Login admin using hard‑coded credentials from settings and return JWT tokens.
+        Single admin only (no subadmins).
         If the admin user does not exist in the database, it will be created on‑the‑fly.
         """
         from django.conf import settings
@@ -161,33 +163,30 @@ class AdminLoginView(APIView):
             return Response({'error': 'Email and password required'},
                             status=status.HTTP_400_BAD_REQUEST)
 
-        # Validate against allowed admin emails (comma‑separated in .env)
-        admin_emails = [e.strip() for e in settings.ADMIN_EMAIL.split(',') if e.strip()]
-        if email not in admin_emails:
+        # Get single admin email from settings
+        admin_email = settings.ADMIN_EMAIL.strip()
+        if email != admin_email:
             return Response({'error': 'Admin email not authorized'},
                             status=status.HTTP_403_FORBIDDEN)
-
-        # Determine role – first email is super‑admin, others are sub‑admin
-        is_super = email == admin_emails[0]
-        is_sub = not is_super
 
         # Retrieve or create the admin user. Use set_password to hash the env password.
         admin_user, created = User.objects.get_or_create(
             email=email,
             defaults={
                 'username': email.split('@')[0],
-                'is_admin': is_super,
-                'is_subadmin': is_sub,
+                'is_admin': True,
             },
         )
         if created:
             # Initialise password to the env value for the first login
             admin_user.set_password(settings.ADMIN_PASSWORD)
+            admin_user.is_admin = True
+            admin_user.save()
         else:
-            # Ensure role flags are up‑to‑date
-            admin_user.is_admin = is_super
-            admin_user.is_subadmin = is_sub
-            admin_user.save(update_fields=['is_admin', 'is_subadmin'])
+            # Ensure role flag is up‑to‑date
+            if not admin_user.is_admin:
+                admin_user.is_admin = True
+                admin_user.save(update_fields=['is_admin'])
 
         # Verify the supplied password against the stored hash
         if not admin_user.check_password(password):
@@ -208,29 +207,36 @@ class AdminForgotPasswordView(APIView):
 
     @swagger_auto_schema(request_body=ForgotPasswordSerializer)
     def post(self, request):
-        """Send password reset token to admin email."""
+        """Send password reset email to admin."""
         serializer = ForgotPasswordSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         email = serializer.validated_data['email']
-        # Look up admin user using is_admin flag
+
         admin_user = User.objects.filter(email=email, is_admin=True).first()
         if not admin_user:
             return Response({'error': 'Admin not found'}, status=status.HTTP_404_NOT_FOUND)
+
         token = default_token_generator.make_token(admin_user)
-        send_mail(
-            'Admin Forgot Password',
-            f'Password reset token: {token}',
-            'no-reply@quran_app.com',
-            [admin_user.email],
-            fail_silently=False,
+
+        # Get frontend URL (admin dashboard URL)
+        frontend_url = request.data.get('frontend_url', 'http://localhost:3000')
+
+        # ← Use the same email service as users (sends full HTML email with button)
+        email_sent = send_password_reset_email(
+            user=admin_user,
+            reset_token=token,
+            frontend_url=f"{frontend_url}/admin-dashboard"  # admin reset page
         )
-        return Response(
-            {
-                'message': 'Password reset email sent',
-                'reset_url': f'/admin-dashboard/admin-reset-password/?email={admin_user.email}&token={token}'
-            },
-            status=status.HTTP_200_OK,
-        )
+
+        if email_sent:
+            return Response({
+                'message': 'Password reset email sent successfully',
+                'reset_url': f'{frontend_url}/admin-dashboard/admin-reset-password?email={admin_user.email}&token={token}'
+            }, status=status.HTTP_200_OK)
+        else:
+            return Response({
+                'error': 'Failed to send password reset email'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 

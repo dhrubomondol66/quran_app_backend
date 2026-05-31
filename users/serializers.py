@@ -97,3 +97,52 @@ class UpdateProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ['username', 'email', 'photo']
+
+
+class GoogleLoginSerializer(serializers.Serializer):
+    """Serializer for Google OAuth2 login - receives token from mobile app."""
+    id_token = serializers.CharField(required=False, allow_blank=True)
+    google_id = serializers.CharField(required=True)
+    email = serializers.EmailField(required=True)
+    name = serializers.CharField(required=False, allow_blank=True)
+    photo_url = serializers.CharField(required=False, allow_blank=True)
+
+    def validate(self, attrs):
+        """Validate Google login data and get or create user."""
+        google_id = attrs.get('google_id')
+        email = attrs.get('email')
+        name = attrs.get('name', '')
+        
+        # Try to get user by google_id first, then by email
+        user = User.objects.filter(google_id=google_id).first()
+        if not user:
+            user = User.objects.filter(email=email).first()
+        
+        # Create user if doesn't exist
+        if not user:
+            # Generate unique username from email
+            base_username = email.split('@')[0]
+            username = base_username
+            counter = 1
+            while User.objects.filter(username=username).exists():
+                username = f"{base_username}{counter}"
+                counter += 1
+            
+            user = User.objects.create_user(
+                username=username,
+                email=email,
+                password=None,  # No password for OAuth users
+            )
+        
+        # Update Google ID if not already set
+        if not user.google_id:
+            user.google_id = google_id
+            user.save()
+        
+        # Update user info if provided
+        if name and not user.username:
+            user.username = name.split()[0] if name else user.username
+            user.save()
+        
+        attrs['user'] = user
+        return attrs

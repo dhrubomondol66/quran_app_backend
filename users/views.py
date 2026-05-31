@@ -8,8 +8,10 @@ from .serializers import (
     ForgotPasswordSerializer,
     ChangePasswordSerializer,
     RefreshTokenSerializer,
-    UpdateProfileSerializer
+    UpdateProfileSerializer,
+    GoogleLoginSerializer
 )
+from .email_service import send_password_reset_email
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -110,22 +112,38 @@ class ForgotPasswordView(APIView):
 
     @swagger_auto_schema(request_body=ForgotPasswordSerializer)
     def post(self, request):
+        """Send password reset email via EmailJS."""
         serializer = ForgotPasswordSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         email = serializer.validated_data['email']
+        
         try:
             user = User.objects.get(email=email)
         except User.DoesNotExist:
-            return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+            # Don't reveal if email exists for security
+            return Response(
+                {'message': 'If this email exists, a password reset link has been sent'},
+                status=status.HTTP_200_OK
+            )
+        
+        # Generate password reset token
         token = default_token_generator.make_token(user)
-        send_mail(
-            'Forgot Password',
-            f'Click on the link to reset your password: {token}',
-            'no-reply@quran_app.com',
-            [user.email],
-            fail_silently=False,
-        )
-        return Response({'message': 'Password reset email sent'}, status=status.HTTP_200_OK)
+        
+        # Get frontend URL from request or use default
+        frontend_url = request.data.get('frontend_url', 'http://localhost:3000')
+        
+        # Send email via EmailJS
+        email_sent = send_password_reset_email(user, token, frontend_url)
+        
+        if email_sent:
+            return Response({
+                'message': 'Password reset email sent successfully',
+                'reset_url': f'{frontend_url}/reset-password?email={user.email}&token={token}'
+            }, status=status.HTTP_200_OK)
+        else:
+            return Response({
+                'error': 'Failed to send password reset email'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class ChangePasswordView(APIView):
     permission_classes = [IsAuthenticated]
@@ -150,3 +168,86 @@ class ChangePasswordView(APIView):
             {'message': 'Password changed successfully'},
             status=status.HTTP_200_OK
         )
+
+
+class GoogleLoginView(APIView):
+    """Google OAuth2 login endpoint for mobile apps.
+    Receives Google token from app and returns JWT tokens.
+    No web redirect - fully in-app authentication.
+    """
+    permission_classes = [AllowAny]
+
+    @swagger_auto_schema(request_body=GoogleLoginSerializer)
+    def post(self, request):
+        serializer = GoogleLoginSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.validated_data['user']
+
+        # Generate JWT tokens for the user
+        refresh = RefreshToken.for_user(user)
+
+        return Response({
+            'message': 'Google login successful',
+            'user': UserSerializer(user).data,
+            'access': str(refresh.access_token),
+            'refresh': str(refresh),
+        }, status=status.HTTP_200_OK)
+
+
+class ResetPasswordView(APIView):
+    """Reset user password using email and reset token."""
+    permission_classes = [AllowAny]
+
+    @swagger_auto_schema(request_body=ChangePasswordSerializer)
+    def post(self, request):
+        """
+        Reset password using token.
+        
+        Expected payload:
+        {
+            "email": "user@example.com",
+            "token": "reset_token_from_email",
+            "new_password": "newpassword123",
+            "confirm_password": "newpassword123"
+        }
+        """
+        email = request.data.get('email')
+        token = request.data.get('token')
+        new_password = request.data.get('new_password')
+        confirm_password = request.data.get('confirm_password')
+        
+        if not all([email, token, new_password, confirm_password]):
+            return Response(
+                {'error': 'Email, token, and passwords are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if new_password != confirm_password:
+            return Response(
+                {'error': 'Passwords do not match'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            return Response(
+                {'error': 'User not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Verify token validity
+        if not default_token_generator.check_token(user, token):
+            return Response(
+                {'error': 'Invalid or expired reset token'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Set new password
+        user.set_password(new_password)
+        user.save()
+        
+        return Response({
+            'message': 'Password reset successfully',
+            'user': UserSerializer(user).data,
+        }, status=status.HTTP_200_OK)

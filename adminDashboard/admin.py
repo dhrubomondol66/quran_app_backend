@@ -14,4 +14,4 @@ class UserManagementAdmin(admin.ModelAdmin):
 
 @admin.register(ProfileSettings)
 class ProfileSettingsAdmin(admin.ModelAdmin):
-    list_display = ('user', 'email', 'is_admin', 'is_subadmin', 'is_active')
+    list_display = ('user', 'email', 'is_admin', 'is_active')

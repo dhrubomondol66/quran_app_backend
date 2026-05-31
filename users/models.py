@@ -33,7 +33,8 @@ class User(AbstractBaseUser):
     photo = models.ImageField(upload_to='profile_photos/', null=True, blank=True)
     is_active = models.BooleanField(default=True)
     is_admin = models.BooleanField(default=False)
-    is_subadmin = models.BooleanField(default=False)
+    # OAuth fields for Google login
+    google_id = models.CharField(max_length=255, null=True, blank=True, unique=True)
     date_joined = models.DateTimeField(default=timezone.now)
 
     @property

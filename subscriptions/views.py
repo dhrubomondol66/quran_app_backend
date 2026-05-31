@@ -1,5 +1,10 @@
+import json
+from datetime import datetime
 import stripe
 from django.conf import settings
+from django.utils import timezone
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -37,22 +42,12 @@ class CreateSubscriptionView(APIView):
             "yearly":  settings.STRIPE_YEARLY_PRICE_ID,
         }
 
-        # DEBUG: Print what we received and what settings contain
-        print("\n=== DEBUG CreateSubscriptionView ===")
-        print(f"Plan received: {plan}")
-        print(f"Price map: {price_map}")
-        print(f"Request data: {request.data}")
-        print(f"Settings STRIPE_MONTHLY_PRICE_ID: {settings.STRIPE_MONTHLY_PRICE_ID}")
-        print(f"Settings STRIPE_YEARLY_PRICE_ID: {settings.STRIPE_YEARLY_PRICE_ID}")
-        print("=====================================\n")
-
         if plan not in price_map:
             return Response(
                 {"detail": "Invalid plan. Choose 'monthly' or 'yearly'."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Prevent duplicate active subscriptions
         existing = request.user.subscription.first()
         if existing and existing.is_valid():
             return Response(
@@ -61,21 +56,61 @@ class CreateSubscriptionView(APIView):
             )
 
         try:
-            session = stripe.checkout.Session.create(
-                mode="subscription",
-                payment_method_types=["card"],
-                line_items=[{"price": price_map[plan], "quantity": 1}],
-                success_url="http://localhost:3000/success?session_id={CHECKOUT_SESSION_ID}",
-                cancel_url="http://localhost:3000/cancel",
+            # Step 1: Get or create Stripe customer
+            subscription_obj = request.user.subscription.first()
+            
+            if subscription_obj and subscription_obj.stripe_customer_id:
+                customer_id = subscription_obj.stripe_customer_id
+            else:
+                customer = stripe.Customer.create(
+                    email=request.user.email,
+                    metadata={"user_id": str(request.user.id)}
+                )
+                customer_id = customer.id
+
+            # Step 2: Create subscription with payment_behavior='default_incomplete'
+            # This creates the sub WITHOUT charging — returns a PaymentIntent client_secret
+            stripe_sub = stripe.Subscription.create(
+                customer=customer_id,
+                items=[{"price": price_map[plan]}],
+                payment_behavior="default_incomplete",
+                payment_settings={"save_default_payment_method": "on_subscription"},
+                expand=["latest_invoice.payment_intent"],
                 metadata={
                     "user_id": str(request.user.id),
                     "plan": plan,
                 },
             )
+
+            # Step 3: Save customer_id and pending subscription to DB
+            if subscription_obj:
+                subscription_obj.stripe_customer_id = customer_id
+                subscription_obj.stripe_subscription_id = stripe_sub.id
+                subscription_obj.plan = plan
+                subscription_obj.is_active = False  # Not active until payment confirmed
+                subscription_obj.save()
+            else:
+                Subscription.objects.create(
+                    user=request.user,
+                    stripe_customer_id=customer_id,
+                    stripe_subscription_id=stripe_sub.id,
+                    plan=plan,
+                    is_active=False,
+                )
+
+            # Step 4: Return client_secret to frontend/mobile to complete payment IN-APP
+            payment_intent = stripe_sub.latest_invoice.payment_intent
+
+            return Response({
+                "subscription_id": stripe_sub.id,
+                "client_secret": payment_intent.client_secret,  # Use this in Stripe SDK
+                "publishable_key": settings.STRIPE_PUBLISHABLE_KEY,
+                "plan": plan,
+                "message": "Use client_secret with Stripe SDK to confirm payment in-app"
+            })
+
         except stripe.error.StripeError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-        return Response({"checkout_url": session.url})
 
 
 class CancelSubscriptionView(APIView):
@@ -134,3 +169,41 @@ class SuccessView(APIView):                               # ← was missing enti
 class CancelView(APIView):                                # ← was missing entirely
     def get(self, request):
         return Response({"detail": "Checkout was cancelled. No charge was made."})
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class StripeWebhookView(APIView):
+    def post(self, request):
+        payload = request.body
+        sig_header = request.META.get("HTTP_STRIPE_SIGNATURE")
+
+        try:
+            event = stripe.Webhook.construct_event(
+                payload, sig_header, settings.STRIPE_WEBHOOK_SECRET
+            )
+        except (ValueError, stripe.error.SignatureVerificationError):
+            return Response(status=status.HTTP_400_BAD_REQUEST)
+
+        if event["type"] == "invoice.payment_succeeded":
+            invoice = event["data"]["object"]
+            stripe_sub_id = invoice.get("subscription")
+
+            try:
+                sub = Subscription.objects.get(stripe_subscription_id=stripe_sub_id)
+                stripe_sub = stripe.Subscription.retrieve(stripe_sub_id)
+                
+                sub.is_active = True
+                sub.expires_at = datetime.fromtimestamp(
+                    stripe_sub.current_period_end, tz=timezone.utc
+                )
+                sub.save()
+            except Subscription.DoesNotExist:
+                pass
+
+        elif event["type"] == "customer.subscription.deleted":
+            stripe_sub_id = event["data"]["object"]["id"]
+            Subscription.objects.filter(
+                stripe_subscription_id=stripe_sub_id
+            ).update(is_active=False)
+
+        return Response({"status": "ok"})
