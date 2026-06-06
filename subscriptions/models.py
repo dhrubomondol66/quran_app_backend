@@ -34,6 +34,6 @@ class Subscription(models.Model):
     def is_valid(self):
         if not self.is_active:
             return False
-        if self.expires_at and self.expires_at < timezone.now():
-            return False
+        # if self.expires_at and self.expires_at < timezone.now():
+        #     return False
         return True

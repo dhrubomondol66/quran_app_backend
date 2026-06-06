@@ -4,10 +4,14 @@ from subscriptions.services import user_has_active_subscription
 
 
 class HasActiveSubscription(BasePermission):
-    message = "An active subscription is required for this action."
+    message = "An active subscription is required."
 
     def has_permission(self, request, view):
-        return user_has_active_subscription(request.user)
+        return (
+            request.user
+            and request.user.is_authenticated
+            and user_has_active_subscription(request.user)
+        )
 
 
 class IsCommunityOwner(BasePermission):

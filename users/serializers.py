@@ -71,7 +71,10 @@ class UserLoginSerializer(serializers.Serializer):
 
         if not user:
             raise ValidationError('Invalid credentials')
-        
+
+        if not user.is_active:
+            raise ValidationError('Your account has been suspended. Please contact support.')
+
         attrs['user'] = user
         return attrs
 

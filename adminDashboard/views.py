@@ -87,17 +87,28 @@ class UserManagementView(APIView):
 
     def put(self, request, user_id):
         try:
-            user_management = UserManagement.objects.get(user__id=user_id, user__is_admin=False)
-        except UserManagement.DoesNotExist:
+            user = User.objects.get(id=user_id)
+            user_management, _ = UserManagement.objects.get_or_create(user=user)
+        except User.DoesNotExist:
             return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
 
         serializer = UserManagementSerializer(user_management, data=request.data, partial=True)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        user_management = serializer.save()
-        # Suspend action – deactivate and revoke tokens
-        if user_management.actions == 'suspended':
+        # Handle password update before saving
+        password = serializer.validated_data.pop('password', None)
+        if password:
+            user_management.user.set_password(password)
+            user_management.user.save(update_fields=['password'])
+
+        action = serializer.validated_data.get('actions', user_management.actions)
+
+        if action == 'delete':
+            user_management.user.delete()
+            return Response({'message': 'User permanently deleted'}, status=status.HTTP_200_OK)
+
+        if action == 'suspend':
             user_management.user.is_active = False
             user_management.user.save(update_fields=['is_active'])
             try:
@@ -105,15 +116,53 @@ class UserManagementView(APIView):
                 OutstandingToken.objects.filter(user=user_management.user).delete()
             except Exception:
                 pass
-        # Delete action – permanently remove user
-        elif user_management.actions == 'delete':
+
+        # Activate: re-enable account
+        elif action == 'active':
+            user_management.user.is_active = True   
+            user_management.user.save(update_fields=['is_active'])
+
+        serializer.save()
+        return Response(UserManagementSerializer(user_management).data, status=status.HTTP_200_OK)
+
+class UserManagementActionView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, user_id, action):  # ← make sure it's 'post' not 'put'
+        if not request.user.is_admin:
+            return Response({'error': 'Admin access required'}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            user = User.objects.get(id=user_id)
+            user_management, _ = UserManagement.objects.get_or_create(user=user)
+        except User.DoesNotExist:
+            return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        if action == 'delete':
             user_management.user.delete()
             return Response({'message': 'User permanently deleted'}, status=status.HTTP_200_OK)
-        # Active action – reactivate user
-        elif user_management.actions == 'active':
+
+        if action == 'suspend':
+            user_management.user.is_active = False
+            user_management.user.save(update_fields=['is_active'])
+            user_management.actions = 'suspend'
+            try:
+                from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
+                OutstandingToken.objects.filter(user=user_management.user).delete()
+            except Exception:
+                pass
+
+        elif action == 'active':
             user_management.user.is_active = True
             user_management.user.save(update_fields=['is_active'])
-        return Response(UserManagementSerializer(user_management).data, status=status.HTTP_200_OK)
+            user_management.actions = 'active'
+
+        user_management.save()
+        return Response({
+            'message': f'User {action} successfully',
+            'user_id': user_id,
+            'status': action,
+        }, status=status.HTTP_200_OK)
 
 class ProfileSettingsView(APIView):
     permission_classes = [IsAuthenticated]

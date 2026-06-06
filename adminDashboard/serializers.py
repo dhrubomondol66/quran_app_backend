@@ -16,29 +16,20 @@ class OverviewSerializer(serializers.Serializer):
 
 
 class UserManagementSerializer(serializers.ModelSerializer):
-    # expose user details via the related user object
-    name = serializers.CharField(source='user.username', read_only=True)
-    email = serializers.EmailField(source='user.email', read_only=True)
-    # write‑only password field for admin updates
-    password = serializers.CharField(write_only=True, required=False, style={'input_type': 'password'})
-    is_active = serializers.BooleanField(source='user.is_active', read_only=True)
-    date_joined = serializers.DateTimeField(source='user.date_joined', read_only=True)
+    name         = serializers.CharField(source='user.username', read_only=True)
+    email        = serializers.EmailField(source='user.email', read_only=True)
+    password     = serializers.CharField(write_only=True, required=False, style={'input_type': 'password'})
+    is_active    = serializers.BooleanField(source='user.is_active', read_only=True)
+    date_joined  = serializers.DateTimeField(source='user.date_joined', read_only=True)
 
     class Meta:
-        model = UserManagement
+        model  = UserManagement
         fields = [
-            'id',
-            'name',
-            'email',
-            'password',  # added for admin password updates
-            'is_active',
-            'date_joined',
+            'id', 'name', 'email', 'password', 'is_active', 'date_joined',
             'subscription_status',
             'actions',
-            'created_at',
-            'updated_at',
+            'created_at', 'updated_at',
         ]
-
 
 class ProfileSettingsSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(required=False)

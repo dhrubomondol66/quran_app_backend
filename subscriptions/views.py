@@ -37,9 +37,17 @@ class CreateSubscriptionView(APIView):
     def post(self, request):
         plan = request.data.get("plan")
 
+        from adminDashboard.models import SubscriptionPlan
+
+        db_monthly = SubscriptionPlan.objects.filter(interval="monthly", is_active=True).first()
+        db_yearly = SubscriptionPlan.objects.filter(interval="yearly", is_active=True).first()
+
+        monthly_price_id = db_monthly.stripe_price_id if db_monthly and db_monthly.stripe_price_id else settings.STRIPE_MONTHLY_PRICE_ID
+        yearly_price_id = db_yearly.stripe_price_id if db_yearly and db_yearly.stripe_price_id else settings.STRIPE_YEARLY_PRICE_ID
+
         price_map = {
-            "monthly": settings.STRIPE_MONTHLY_PRICE_ID,
-            "yearly":  settings.STRIPE_YEARLY_PRICE_ID,
+            "monthly": monthly_price_id,
+            "yearly":  yearly_price_id,
         }
 
         if plan not in price_map:
@@ -75,7 +83,7 @@ class CreateSubscriptionView(APIView):
                 items=[{"price": price_map[plan]}],
                 payment_behavior="default_incomplete",
                 payment_settings={"save_default_payment_method": "on_subscription"},
-                expand=["latest_invoice.payment_intent"],
+                expand=["latest_invoice.payment_intent", "latest_invoice.confirmation_secret"],
                 metadata={
                     "user_id": str(request.user.id),
                     "plan": plan,
@@ -99,11 +107,29 @@ class CreateSubscriptionView(APIView):
                 )
 
             # Step 4: Return client_secret to frontend/mobile to complete payment IN-APP
-            payment_intent = stripe_sub.latest_invoice.payment_intent
+            latest_invoice = stripe_sub.latest_invoice
+            client_secret = None
+
+            # Try retrieving client_secret from payment_intent (older Stripe versions)
+            if hasattr(latest_invoice, "payment_intent") and latest_invoice.payment_intent:
+                if isinstance(latest_invoice.payment_intent, str):
+                    client_secret = latest_invoice.payment_intent
+                else:
+                    client_secret = getattr(latest_invoice.payment_intent, "client_secret", None)
+
+            # Try retrieving from confirmation_secret (newer Stripe versions, e.g. Basil+)
+            if not client_secret and hasattr(latest_invoice, "confirmation_secret") and latest_invoice.confirmation_secret:
+                client_secret = getattr(latest_invoice.confirmation_secret, "client_secret", None)
+
+            if not client_secret:
+                return Response(
+                    {"detail": "Unable to retrieve payment client secret from Stripe. Please check your Stripe API version and configuration."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
 
             return Response({
                 "subscription_id": stripe_sub.id,
-                "client_secret": payment_intent.client_secret,  # Use this in Stripe SDK
+                "client_secret": client_secret,  # Use this in Stripe SDK
                 "publishable_key": settings.STRIPE_PUBLISHABLE_KEY,
                 "plan": plan,
                 "message": "Use client_secret with Stripe SDK to confirm payment in-app"

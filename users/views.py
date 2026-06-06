@@ -202,7 +202,6 @@ class ResetPasswordView(APIView):
     def post(self, request):
         """
         Reset password using token.
-        
         Expected payload:
         {
             "email": "user@example.com",

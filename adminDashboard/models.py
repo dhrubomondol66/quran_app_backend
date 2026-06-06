@@ -22,7 +22,7 @@ class Overview(models.Model):
 class UserManagement(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='user_activity')
     subscription_status = models.CharField(max_length=100, default='free', blank=True)
-    actions = models.CharField(max_length=100, choices=[('active', 'Active'), ('suspended', 'Suspended'), ('delete', 'Delete')], default='active', blank=True)
+    actions = models.CharField(max_length=100, choices=[('active', 'Active'), ('suspend', 'Suspend'), ('delete', 'Delete')], default='active', blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
@@ -30,7 +30,7 @@ class UserManagement(models.Model):
         if self.actions == 'active':
             self.user.is_active = True
             self.user.save()
-        elif self.actions == 'suspended':
+        elif self.actions == 'suspend':
             self.user.is_active = False
             self.user.save()
         elif self.actions == 'delete':
