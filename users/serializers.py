@@ -109,7 +109,8 @@ class RefreshTokenSerializer(serializers.Serializer):
 class UpdateProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['username', 'email', 'photo']
+        fields = ['username', 'photo']
+
 
 
 class GoogleLoginSerializer(serializers.Serializer):
