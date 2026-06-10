@@ -106,6 +106,17 @@ class UserManagementView(APIView):
         action = serializer.validated_data.get('actions', user_management.actions)
 
         if action == 'delete':
+            try:
+                from settings.notifications import send_push_notification
+                send_push_notification(
+                    user_or_users=user_management.user,
+                    title="Account Deleted",
+                    body="Your account has been permanently deleted by the administrator.",
+                    notification_type='user_deleted'
+                )
+            except Exception as e:
+                print(f"Failed to send account deletion notification: {e}")
+
             user_management.user.delete()
             return Response({'message': 'User permanently deleted'}, status=status.HTTP_200_OK)
 
@@ -151,6 +162,17 @@ class UserManagementActionView(APIView):
             return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
 
         if action == 'delete':
+            try:
+                from settings.notifications import send_push_notification
+                send_push_notification(
+                    user_or_users=user_management.user,
+                    title="Account Deleted",
+                    body="Your account has been permanently deleted by the administrator.",
+                    notification_type='user_deleted'
+                )
+            except Exception as e:
+                print(f"Failed to send account deletion notification (action): {e}")
+
             user_management.user.delete()
             return Response({'message': 'User permanently deleted'}, status=status.HTTP_200_OK)
 
@@ -365,22 +387,35 @@ class LibraryContentView(APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         library_item = serializer.save(uploaded_by=request.user)
 
-        # Notify users if a new PDF is added
-        if library_item.content_type == 'pdf':
-            try:
-                from django.contrib.auth import get_user_model
-                from settings.notifications import send_push_notification
-                User = get_user_model()
-                active_users = User.objects.filter(is_active=True, is_admin=False)
-                send_push_notification(
-                    user_or_users=active_users,
-                    title="New Book Added",
-                    body=f"New book added: '{library_item.title}'. Check it out!",
-                    notification_type='book_added',
-                    extra_data={'library_id': library_item.id}
-                )
-            except Exception as e:
-                print(f"Failed to send new book notification: {e}")
+        # Notify users if a new item is added to the library
+        try:
+            from django.contrib.auth import get_user_model
+            from settings.notifications import send_push_notification
+            User = get_user_model()
+            active_users = User.objects.filter(is_active=True, is_admin=False)
+            
+            if library_item.content_type == 'audio':
+                title = "New Audio Added"
+                body = f"New audio added: '{library_item.title}'. Check it out!"
+                notif_type = 'audio_added'
+            elif library_item.content_type == 'book':
+                title = "New Book Added"
+                body = f"New book added: '{library_item.title}'. Check it out!"
+                notif_type = 'book_added'
+            else:  # pdf or fallback
+                title = "New Book Added"
+                body = f"New book added: '{library_item.title}'. Check it out!"
+                notif_type = 'book_added'
+
+            send_push_notification(
+                user_or_users=active_users,
+                title=title,
+                body=body,
+                notification_type=notif_type,
+                extra_data={'library_id': library_item.id}
+            )
+        except Exception as e:
+            print(f"Failed to send new library item notification: {e}")
 
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 

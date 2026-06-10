@@ -17,6 +17,9 @@ class FCMDeviceSerializer(serializers.ModelSerializer):
         model = FCMDevice
         fields = ['id', 'token', 'created_at']
         read_only_fields = ['id', 'created_at']
+        extra_kwargs = {
+            'token': {'validators': []}
+        }
 
 class AddFeatureSerializer(serializers.ModelSerializer):
     class Meta:
