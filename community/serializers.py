@@ -7,6 +7,7 @@ from .models import (
     InviteMembers,
     CommunityPosts,
     LeaderBoard,
+    JoinRequest,
 )
 
 User = get_user_model()
@@ -134,3 +135,13 @@ class LeaderBoardSerializer(serializers.ModelSerializer):
         model = LeaderBoard
         fields = ["id", "user", "community", "points", "created_at", "updated_at"]
         read_only_fields = ["id", "created_at", "updated_at"]
+
+
+class JoinRequestSerializer(serializers.ModelSerializer):
+    user = UserSummarySerializer(read_only=True)
+    community_name = serializers.CharField(source="community.name", read_only=True)
+
+    class Meta:
+        model = JoinRequest
+        fields = ["id", "community", "community_name", "user", "status", "created_at"]
+        read_only_fields = ["id", "user", "status", "created_at"]

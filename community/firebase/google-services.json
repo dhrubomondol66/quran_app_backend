@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "348686905790",
+    "project_id": "qari24-7",
+    "storage_bucket": "qari24-7.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:348686905790:android:1f43cf394cde0a2750c9ef",
+        "android_client_info": {
+          "package_name": "com.qari247.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "348686905790-afkr3oapt23hb7ablcmg7n6pjs0feqrq.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.qari247.app",
+            "certificate_hash": "b277fc65085f6e2782afba4c86f31b684fbadcc5"
+          }
+        },
+        {
+          "client_id": "348686905790-68pnnvoomn5ibre2ef3obp4nuj86i6u0.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAG7KwnOixAjrdIlvCbNz_fTCF5w-vwgaA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "348686905790-68pnnvoomn5ibre2ef3obp4nuj86i6u0.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "348686905790-koqcprqqcgsu90br72k6olv5ips31tf3.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.qari247.app"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

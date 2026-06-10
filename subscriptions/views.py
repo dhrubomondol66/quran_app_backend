@@ -9,6 +9,8 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 
 from .models import Subscription
 from .serializers import SubscriptionSerializer
@@ -34,6 +36,15 @@ class MySubscriptionView(APIView):
 class CreateSubscriptionView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @swagger_auto_schema(
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['plan'],
+            properties={
+                'plan': openapi.Schema(type=openapi.TYPE_STRING, description="Choose 'monthly' or 'yearly'"),
+            }
+        )
+    )
     def post(self, request):
         plan = request.data.get("plan")
 
@@ -223,6 +234,23 @@ class StripeWebhookView(APIView):
                     stripe_sub.current_period_end, tz=timezone.utc
                 )
                 sub.save()
+
+                try:
+                    from django.contrib.auth import get_user_model
+                    from settings.notifications import send_push_notification
+                    User = get_user_model()
+                    admins = User.objects.filter(is_admin=True)
+                    amount = invoice.get("amount_paid", 0) / 100
+                    send_push_notification(
+                        user_or_users=admins,
+                        title="New Subscription Payment",
+                        body=f"User {sub.user.username} successfully paid ${amount:.2f} for a '{sub.plan}' subscription.",
+                        notification_type='payment_created',
+                        extra_data={'user_id': sub.user.id, 'plan': sub.plan, 'amount': amount}
+                    )
+                except Exception as e:
+                    print(f"Failed to send admin payment notification from webhook view: {e}")
+
             except Subscription.DoesNotExist:
                 pass
 

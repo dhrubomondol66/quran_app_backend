@@ -16,6 +16,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
 from django.contrib.auth.tokens import default_token_generator
@@ -25,6 +26,7 @@ from drf_yasg.utils import swagger_auto_schema
 # Create your views here.
 class RegisterView(generics.CreateAPIView):
     permission_classes = [AllowAny]
+    parser_classes = [MultiPartParser, FormParser]
     queryset = User.objects.all()
     serializer_class = RegisterSerializer
 
@@ -35,7 +37,7 @@ class RegisterView(generics.CreateAPIView):
         refresh = RefreshToken.for_user(user)
         return Response({
             'message': 'Registration successful',
-            'user': UserSerializer(user).data,
+            'user': UserSerializer(user, context={'request': request}).data,
             'access': str(refresh.access_token),
             'refresh': str(refresh),
         }, status=status.HTTP_201_CREATED)
@@ -52,7 +54,7 @@ class UserLoginView(APIView):
 
         return Response({
             'message': 'Login successful',
-            'user': UserSerializer(user).data,
+            'user': UserSerializer(user, context={'request': request}).data,
             'access': str(refresh.access_token),
             'refresh': str(refresh),
         })
@@ -91,11 +93,12 @@ class ProfileView(APIView):
     permission_classes = [IsAuthenticated]
     def get(self, request):
         return Response({
-            'user': UserSerializer(request.user).data,
+            'user': UserSerializer(request.user, context={'request': request}).data,
         })
 
 class UpdateProfileView(APIView):
     permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
 
     @swagger_auto_schema(request_body=UpdateProfileSerializer)
     def post(self, request):
@@ -104,7 +107,7 @@ class UpdateProfileView(APIView):
         serializer.save()
         return Response({
             'message': 'Profile updated successfully',
-            'user': UserSerializer(request.user).data,
+            'user': UserSerializer(request.user, context={'request': request}).data,
         })
 
 class ForgotPasswordView(APIView):
@@ -188,7 +191,7 @@ class GoogleLoginView(APIView):
 
         return Response({
             'message': 'Google login successful',
-            'user': UserSerializer(user).data,
+            'user': UserSerializer(user, context={'request': request}).data,
             'access': str(refresh.access_token),
             'refresh': str(refresh),
         }, status=status.HTTP_200_OK)
@@ -248,5 +251,5 @@ class ResetPasswordView(APIView):
         
         return Response({
             'message': 'Password reset successfully',
-            'user': UserSerializer(user).data,
+            'user': UserSerializer(user, context={'request': request}).data,
         }, status=status.HTTP_200_OK)

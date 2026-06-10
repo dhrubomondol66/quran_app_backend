@@ -4,6 +4,7 @@ import stripe
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth.tokens import default_token_generator
@@ -112,6 +113,17 @@ class UserManagementView(APIView):
             user_management.user.is_active = False
             user_management.user.save(update_fields=['is_active'])
             try:
+                from settings.notifications import send_push_notification
+                send_push_notification(
+                    user_or_users=user_management.user,
+                    title="Account Suspended",
+                    body="Your account has been suspended by the administrator. Please contact support.",
+                    notification_type='user_suspended'
+                )
+            except Exception as e:
+                print(f"Failed to send account suspension notification: {e}")
+
+            try:
                 from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
                 OutstandingToken.objects.filter(user=user_management.user).delete()
             except Exception:
@@ -147,6 +159,17 @@ class UserManagementActionView(APIView):
             user_management.user.save(update_fields=['is_active'])
             user_management.actions = 'suspend'
             try:
+                from settings.notifications import send_push_notification
+                send_push_notification(
+                    user_or_users=user_management.user,
+                    title="Account Suspended",
+                    body="Your account has been suspended by the administrator. Please contact support.",
+                    notification_type='user_suspended'
+                )
+            except Exception as e:
+                print(f"Failed to send account suspension notification (action): {e}")
+
+            try:
                 from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
                 OutstandingToken.objects.filter(user=user_management.user).delete()
             except Exception:
@@ -179,6 +202,7 @@ class ProfileSettingsView(APIView):
         serializer = ProfileSettingsSerializer(profile_settings)
         return Response(serializer.data)
 
+    @swagger_auto_schema(request_body=ProfileSettingsSerializer)
     def put(self, request):
         profile_settings, _ = ProfileSettings.objects.get_or_create(user=request.user)
 
@@ -318,6 +342,7 @@ class AdminResetPasswordView(APIView):
 
 class LibraryContentView(APIView):
     permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
 
     def get(self, request):
         content_type = request.query_params.get('type')       # filter: pdf / audio / book
@@ -332,17 +357,37 @@ class LibraryContentView(APIView):
         serializer = LibraryContentSerializer(qs, many=True, context={'request': request})
         return Response(serializer.data)
 
+    @swagger_auto_schema(request_body=LibraryContentSerializer)
     def post(self, request):
         # multipart/form-data because of file upload
         serializer = LibraryContentSerializer(data=request.data, context={'request': request})
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        serializer.save(uploaded_by=request.user)
+        library_item = serializer.save(uploaded_by=request.user)
+
+        # Notify users if a new PDF is added
+        if library_item.content_type == 'pdf':
+            try:
+                from django.contrib.auth import get_user_model
+                from settings.notifications import send_push_notification
+                User = get_user_model()
+                active_users = User.objects.filter(is_active=True, is_admin=False)
+                send_push_notification(
+                    user_or_users=active_users,
+                    title="New Book Added",
+                    body=f"New book added: '{library_item.title}'. Check it out!",
+                    notification_type='book_added',
+                    extra_data={'library_id': library_item.id}
+                )
+            except Exception as e:
+                print(f"Failed to send new book notification: {e}")
+
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
 class LibraryContentDetailView(APIView):
     permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
 
     def _get_object(self, pk):
         try:
@@ -356,6 +401,7 @@ class LibraryContentDetailView(APIView):
             return Response({'error': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
         return Response(LibraryContentSerializer(obj, context={'request': request}).data)
 
+    @swagger_auto_schema(request_body=LibraryContentSerializer)
     def put(self, request, pk):
         obj = self._get_object(pk)
         if not obj:
@@ -387,6 +433,7 @@ class SubscriptionPlanView(APIView):
         plans = SubscriptionPlan.objects.all().order_by('interval')
         return Response(SubscriptionPlanSerializer(plans, many=True).data)
 
+    @swagger_auto_schema(request_body=SubscriptionPlanSerializer)
     def post(self, request):
         """Create or update a plan and sync price to Stripe."""
         serializer = SubscriptionPlanSerializer(data=request.data)
@@ -396,7 +443,7 @@ class SubscriptionPlanView(APIView):
         interval = serializer.validated_data['interval']
         price    = serializer.validated_data['price']
 
-        plan, _ = SubscriptionPlan.objects.get_or_create(interval=interval)
+        plan, _ = SubscriptionPlan.objects.get_or_create(interval=interval, defaults={'price': price})
         plan.price       = price
         plan.is_active   = serializer.validated_data.get('is_active', True)
         plan.updated_by  = request.user
@@ -435,6 +482,7 @@ class SubscriptionPlanView(APIView):
 class SubscriptionPlanDetailView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @swagger_auto_schema(request_body=SubscriptionPlanSerializer)
     def put(self, request, pk):
         try:
             plan = SubscriptionPlan.objects.get(pk=pk)

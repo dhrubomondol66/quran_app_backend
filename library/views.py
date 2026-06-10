@@ -84,7 +84,10 @@ class SavedVerseViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return SavedVerse.objects.filter(user=self.request.user)
+        user = self.request.user
+        if not user or user.is_anonymous:
+            return SavedVerse.objects.none()
+        return SavedVerse.objects.filter(user=user)
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
@@ -95,7 +98,10 @@ class BookmarkViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return Bookmark.objects.filter(user=self.request.user)
+        user = self.request.user
+        if not user or user.is_anonymous:
+            return Bookmark.objects.none()
+        return Bookmark.objects.filter(user=user)
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
@@ -154,22 +160,21 @@ class LibraryContentDetailView(APIView):
         except LibraryContent.DoesNotExist:
             return Response({'error': 'Content not found'}, status=status.HTTP_404_NOT_FOUND)
 
+        serializer = LibraryContentSerializer(content, context={'request': request})
+        data = serializer.data
+
         if content.access == 'premium' and not _user_is_premium(request.user):
-            return Response({
-                'id':      content.id,
-                'title':   content.title,
-                'access':  content.access,
-                'locked':  True,
-                'message': 'Subscribe to access this content.',
-            }, status=status.HTTP_403_FORBIDDEN)
+            data['file_url'] = None
+            data['locked'] = True
+            data['message'] = 'Subscribe to access this content.'
+            return Response(data, status=status.HTTP_403_FORBIDDEN)
 
         LibraryContentAccess.objects.get_or_create(
             user=request.user,
             content_id=content.id,
         )
 
-        serializer = LibraryContentSerializer(content, context={'request': request})
-        return Response({**serializer.data, 'locked': False})
+        return Response({**data, 'locked': False})
 
 
 class LibraryContentByTypeView(APIView):

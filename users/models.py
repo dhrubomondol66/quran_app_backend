@@ -42,6 +42,14 @@ class User(AbstractBaseUser):
         """Alias for is_admin to satisfy Django admin checks and custom code."""
         return self.is_admin
 
+    def has_perm(self, perm, obj=None):
+        """Does the user have a specific permission?"""
+        return self.is_admin
+
+    def has_module_perms(self, app_label):
+        """Does the user have permissions to view the app `app_label`?"""
+        return self.is_admin
+
     objects = UserManager()
 
     USERNAME_FIELD = 'username'

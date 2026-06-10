@@ -55,4 +55,21 @@ class LeaderBoard(models.Model):
 
     def __str__(self):
         return f"{self.user.username} in {self.community.name}"
+
+
+class JoinRequest(models.Model):
+    community = models.ForeignKey(CreateCommunity, on_delete=models.CASCADE, related_name='join_requests')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='join_requests')
+    status = models.CharField(
+        max_length=20,
+        choices=[('pending', 'Pending'), ('approved', 'Approved'), ('declined', 'Declined')],
+        default='pending'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("community", "user")
+
+    def __str__(self):
+        return f"{self.user.username} request to join {self.community.name} ({self.status})"
     

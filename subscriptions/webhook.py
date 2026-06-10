@@ -54,6 +54,20 @@ def stripe_webhook(request):
             },
         )
 
+        try:
+            from settings.notifications import send_push_notification
+            admins = User.objects.filter(is_admin=True)
+            amount = obj.get("amount_total", 0) / 100
+            send_push_notification(
+                user_or_users=admins,
+                title="New Subscription Payment",
+                body=f"User {user.username} successfully paid ${amount:.2f} for a '{plan}' subscription.",
+                notification_type='payment_created',
+                extra_data={'user_id': user.id, 'plan': plan, 'amount': amount}
+            )
+        except Exception as e:
+            print(f"Failed to send admin payment notification: {e}")
+
     # ── Renewal succeeded → extend expiry ──────────────────────────────────
     elif event_type == "invoice.paid":
         stripe_sub_id = obj.get("subscription")

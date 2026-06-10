@@ -15,6 +15,8 @@ from .views import (
     CommunityPostsView,
     CommunityAudioView,
     LeaderBoardView,
+    ListJoinRequestsView,
+    RespondJoinRequestView,
 )
 
 urlpatterns = [
@@ -24,6 +26,8 @@ urlpatterns = [
     path("<int:pk>/audio/", CommunityAudioView.as_view()),
     path("create-community/", CreateCommunityView.as_view()),
     path("join-community/", JoinCommunityView.as_view()),
+    path("join-requests/", ListJoinRequestsView.as_view(), name="list-join-requests"),
+    path("join-requests/<int:pk>/respond/", RespondJoinRequestView.as_view(), name="respond-join-request"),
     path("leave-community/", LeaveCommunityView.as_view()),
     path("accept-invite/", AcceptInviteView.as_view()),
     path("reject-invite/", RejectInviteView.as_view()),

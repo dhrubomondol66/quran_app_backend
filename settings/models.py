@@ -15,7 +15,23 @@ class Settings(models.Model):
 class Notification(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='notifications')
     title = models.CharField(max_length=100)
-    library_verse = models.ForeignKey(Verse, on_delete=models.CASCADE, related_name='notifications')
+    body = models.TextField(blank=True, default='')
+    library_verse = models.ForeignKey(Verse, on_delete=models.CASCADE, related_name='notifications', blank=True, null=True)
+    notification_type = models.CharField(max_length=50, default='general')
+    is_read = models.BooleanField(default=False)
+    extra_data = models.JSONField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.user.username} - {self.title}"
+
+class FCMDevice(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='fcm_devices')
+    token = models.TextField(unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.user.username}'s device token"
 
 class AddFeature(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='add_features')

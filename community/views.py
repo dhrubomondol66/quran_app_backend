@@ -5,12 +5,14 @@ from rest_framework.exceptions import NotFound, PermissionDenied, ValidationErro
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 
 from library.models import Surah, Verse
 from library.serializers import SurahSerializer, VerseSerializer
 from subscriptions.services import user_has_active_subscription
 
-from .models import CreateCommunity, CommunityMembers, InviteMembers, CommunityPosts, LeaderBoard
+from .models import CreateCommunity, CommunityMembers, InviteMembers, CommunityPosts, LeaderBoard, JoinRequest
 from .permissions import HasActiveSubscription
 from .serializers import (
     CommunityListSerializer,
@@ -21,6 +23,7 @@ from .serializers import (
     InviteMembersSerializer,
     CommunityPostsSerializer,
     LeaderBoardSerializer,
+    JoinRequestSerializer,
 )
 
 
@@ -100,12 +103,30 @@ class CommunityMembersListView(APIView):
 class CreateCommunityView(APIView):
     permission_classes = [IsAuthenticated, HasActiveSubscription]
 
+    @swagger_auto_schema(request_body=CreateCommunitySerializer)
     def post(self, request):
         serializer = CreateCommunitySerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         community = serializer.save(user=request.user)
         CommunityMembers.objects.get_or_create(community=community, user=request.user)
+        
+        # Send push notification to all other active users
+        try:
+            from django.contrib.auth import get_user_model
+            from settings.notifications import send_push_notification
+            User = get_user_model()
+            all_users = User.objects.filter(is_active=True).exclude(id=request.user.id)
+            send_push_notification(
+                user_or_users=all_users,
+                title="New Community Created",
+                body=f"Explore the new community '{community.name}' created by {request.user.username}!",
+                notification_type='community_created',
+                extra_data={'community_id': community.id}
+            )
+        except Exception as e:
+            print(f"Failed to send community creation notification: {e}")
+
         community = _community_queryset().get(pk=community.pk)
         return Response(
             CommunityDetailSerializer(community, context={"request": request}).data,
@@ -116,29 +137,167 @@ class CreateCommunityView(APIView):
 class JoinCommunityView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @swagger_auto_schema(
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['community'],
+            properties={
+                'community': openapi.Schema(type=openapi.TYPE_INTEGER, description='ID of the community to join'),
+            }
+        )
+    )
     def post(self, request):
         community_id = request.data.get("community")
         if not community_id:
             raise ValidationError({"community": "This field is required."})
         community = get_object_or_404(CreateCommunity, pk=community_id)
-        membership, created = CommunityMembers.objects.get_or_create(
-            community=community,
-            user=request.user,
-        )
-        if not created:
+        
+        # Check if already a member
+        if _user_is_member(community, request.user):
             return Response(
                 {"message": "You are already a member of this community."},
                 status=status.HTTP_200_OK,
             )
+
+        # Create join request
+        join_request, created = JoinRequest.objects.get_or_create(
+            community=community,
+            user=request.user,
+            defaults={"status": "pending"}
+        )
+        
+        if not created:
+            if join_request.status == 'pending':
+                return Response(
+                    {
+                        "message": "You have already submitted a join request. Status: pending.",
+                        "join_request": JoinRequestSerializer(join_request).data
+                    },
+                    status=status.HTTP_200_OK
+                )
+            else:
+                join_request.status = 'pending'
+                join_request.save()
+
+        # Send push notification to the community owner (admin of the community)
+        try:
+            from settings.notifications import send_push_notification
+            send_push_notification(
+                user_or_users=community.user,
+                title="New Join Request",
+                body=f"{request.user.username} has requested to join your community '{community.name}'.",
+                notification_type='join_request',
+                extra_data={'community_id': community.id, 'join_request_id': join_request.id}
+            )
+        except Exception as e:
+            print(f"Failed to send join request notification: {e}")
+
         return Response(
-            CommunityMembersSerializer(membership).data,
+            {
+                "message": "Join request submitted successfully.",
+                "join_request": JoinRequestSerializer(join_request).data
+            },
             status=status.HTTP_201_CREATED,
         )
+
+
+class ListJoinRequestsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        community_id = request.query_params.get("community")
+        if community_id:
+            community = get_object_or_404(CreateCommunity, pk=community_id)
+            _require_owner(community, request.user)
+            requests = JoinRequest.objects.filter(community=community, status='pending').select_related("user", "community")
+        else:
+            requests = JoinRequest.objects.filter(community__user=request.user, status='pending').select_related("user", "community")
+        
+        serializer = JoinRequestSerializer(requests, many=True)
+        return Response(serializer.data)
+
+
+class RespondJoinRequestView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['action'],
+            properties={
+                'action': openapi.Schema(type=openapi.TYPE_STRING, description="Choose 'approve' or 'decline'"),
+            }
+        )
+    )
+    def post(self, request, pk):
+        join_request = get_object_or_404(JoinRequest, pk=pk)
+        _require_owner(join_request.community, request.user)
+
+        action = request.data.get("action")
+        if action not in ['approve', 'decline']:
+            raise ValidationError({"action": "Choose 'approve' or 'decline'."})
+
+        if action == 'approve':
+            join_request.status = 'approved'
+            join_request.save()
+
+            membership, _ = CommunityMembers.objects.get_or_create(
+                community=join_request.community,
+                user=join_request.user
+            )
+
+            # Send push notification to requester
+            try:
+                from settings.notifications import send_push_notification
+                send_push_notification(
+                    user_or_users=join_request.user,
+                    title="Join Request Approved",
+                    body=f"Your request to join the community '{join_request.community.name}' has been approved!",
+                    notification_type='join_response',
+                    extra_data={'community_id': join_request.community.id, 'status': 'approved'}
+                )
+            except Exception as e:
+                print(f"Failed to send join approval notification: {e}")
+
+            return Response(
+                {
+                    "message": "Join request approved.",
+                    "membership": CommunityMembersSerializer(membership).data
+                },
+                status=status.HTTP_200_OK
+            )
+        else:
+            join_request.status = 'declined'
+            join_request.save()
+
+            # Send push notification to requester
+            try:
+                from settings.notifications import send_push_notification
+                send_push_notification(
+                    user_or_users=join_request.user,
+                    title="Join Request Declined",
+                    body=f"Your request to join the community '{join_request.community.name}' has been declined.",
+                    notification_type='join_response',
+                    extra_data={'community_id': join_request.community.id, 'status': 'declined'}
+                )
+            except Exception as e:
+                print(f"Failed to send join decline notification: {e}")
+
+            return Response({"message": "Join request declined."}, status=status.HTTP_200_OK)
 
 
 class LeaveCommunityView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @swagger_auto_schema(
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['community'],
+            properties={
+                'community': openapi.Schema(type=openapi.TYPE_INTEGER, description='ID of the community to leave'),
+            }
+        )
+    )
     def post(self, request):
         community_id = request.data.get("community")
         if not community_id:
@@ -160,6 +319,15 @@ class LeaveCommunityView(APIView):
 class DeleteCommunityView(APIView):
     permission_classes = [IsAuthenticated, HasActiveSubscription]
 
+    @swagger_auto_schema(
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['community'],
+            properties={
+                'community': openapi.Schema(type=openapi.TYPE_INTEGER, description='ID of the community to delete'),
+            }
+        )
+    )
     def post(self, request):
         community_id = request.data.get("community")
         if not community_id:
@@ -173,6 +341,16 @@ class DeleteCommunityView(APIView):
 class InviteMembersView(APIView):
     permission_classes = [IsAuthenticated, HasActiveSubscription]
 
+    @swagger_auto_schema(
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['community', 'user'],
+            properties={
+                'community': openapi.Schema(type=openapi.TYPE_INTEGER, description='ID of the community'),
+                'user': openapi.Schema(type=openapi.TYPE_INTEGER, description='ID of the user to invite'),
+            }
+        )
+    )
     def post(self, request):
         community_id = request.data.get("community")
         user_id = request.data.get("user")
@@ -202,6 +380,15 @@ class InviteMembersView(APIView):
 class AcceptInviteView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @swagger_auto_schema(
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['invite'],
+            properties={
+                'invite': openapi.Schema(type=openapi.TYPE_INTEGER, description='ID of the invite to accept'),
+            }
+        )
+    )
     def post(self, request):
         invite_id = request.data.get("invite")
         if not invite_id:
@@ -218,6 +405,15 @@ class AcceptInviteView(APIView):
 class RejectInviteView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @swagger_auto_schema(
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['invite'],
+            properties={
+                'invite': openapi.Schema(type=openapi.TYPE_INTEGER, description='ID of the invite to reject'),
+            }
+        )
+    )
     def post(self, request):
         invite_id = request.data.get("invite")
         if not invite_id:
@@ -230,6 +426,16 @@ class RejectInviteView(APIView):
 class RemoveCommunityMemberView(APIView):
     permission_classes = [IsAuthenticated, HasActiveSubscription]
 
+    @swagger_auto_schema(
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['community', 'user'],
+            properties={
+                'community': openapi.Schema(type=openapi.TYPE_INTEGER, description='ID of the community'),
+                'user': openapi.Schema(type=openapi.TYPE_INTEGER, description='ID of the user to remove'),
+            }
+        )
+    )
     def post(self, request):
         community_id = request.data.get("community")
         user_id = request.data.get("user")
@@ -266,6 +472,7 @@ class CommunityPostsView(APIView):
         )
         return Response(CommunityPostsSerializer(posts, many=True).data)
 
+    @swagger_auto_schema(request_body=CommunityPostsSerializer)
     def post(self, request):
         community_id = request.data.get("community")
         if not community_id:
@@ -318,6 +525,7 @@ class LeaderBoardView(APIView):
         ).order_by("-points")
         return Response(LeaderBoardSerializer(entries, many=True).data)
 
+    @swagger_auto_schema(request_body=LeaderBoardSerializer)
     def post(self, request):
         community_id = request.data.get("community")
         if not community_id:
