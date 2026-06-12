@@ -341,3 +341,47 @@ class PaymentHistoryView(APIView):
         history = PaymentHistory.objects.filter(user=request.user).order_by('-created_at')
         serializer = PaymentHistorySerializer(history, many=True)
         return Response(serializer.data)
+
+class RestoreSubscriptionView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        try:
+            customers = stripe.Customer.list(email=user.email, limit=1)
+            if not customers.data:
+                return Response({"detail": "No Stripe customer found for this email. Nothing to restore."}, status=status.HTTP_404_NOT_FOUND)
+            
+            customer_id = customers.data[0].id
+            subs = stripe.Subscription.list(customer=customer_id, status='active', limit=1)
+            if not subs.data:
+                subs = stripe.Subscription.list(customer=customer_id, status='trialing', limit=1)
+                
+            if not subs.data:
+                return Response({"detail": "No active or trialing Stripe subscriptions found to restore."}, status=status.HTTP_404_NOT_FOUND)
+            
+            stripe_sub = subs.data[0]
+            plan_interval = 'monthly'
+            if stripe_sub.items.data:
+                price = stripe_sub.items.data[0].price
+                if price.recurring:
+                    plan_interval = price.recurring.interval
+                    if plan_interval == 'month':
+                        plan_interval = 'monthly'
+                    elif plan_interval == 'year':
+                        plan_interval = 'yearly'
+
+            sub_obj, created = Subscription.objects.get_or_create(user=user)
+            sub_obj.stripe_customer_id = customer_id
+            sub_obj.stripe_subscription_id = stripe_sub.id
+            sub_obj.plan = plan_interval
+            sub_obj.is_active = True
+            sub_obj.expires_at = datetime.fromtimestamp(stripe_sub.current_period_end, tz=timezone.utc)
+            sub_obj.save()
+
+            return Response({
+                "message": "Subscription restored successfully.",
+                "subscription": SubscriptionSerializer(sub_obj).data
+            })
+        except stripe.error.StripeError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)

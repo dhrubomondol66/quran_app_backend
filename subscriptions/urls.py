@@ -9,6 +9,7 @@ from .views import (
     UserSubscriptionPlansView,
     ToggleAutoRenewalView,
     PaymentHistoryView,
+    RestoreSubscriptionView,
 )
 from .webhook import stripe_webhook
 
@@ -23,4 +24,5 @@ urlpatterns = [
     path("plans/",               UserSubscriptionPlansView.as_view()),
     path("toggle-auto-renewal/", ToggleAutoRenewalView.as_view()),
     path("payment-history/",     PaymentHistoryView.as_view()),
+    path("restore-subscription/", RestoreSubscriptionView.as_view()),
 ]

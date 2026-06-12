@@ -79,37 +79,64 @@ class UserProgressView(APIView):
         else:
             growth = 100.0 if current_verses_count > 0 else 0.0
             
-        # 3. Daily Activity Breakdown (Hourly slots) for today
-        today_logs = ReadingLog.objects.filter(user=user, timestamp__date=today)
-        time_slots = {
-            '6AM': timedelta(0),
-            '9AM': timedelta(0),
-            '12PM': timedelta(0),
-            '2PM': timedelta(0),
-            '5PM': timedelta(0),
-            '7PM': timedelta(0),
-            'Now': timedelta(0)
-        }
-        
-        for log in today_logs:
-            hour = timezone.localtime(log.timestamp).hour
-            if 5 <= hour < 8:
-                time_slots['6AM'] += log.time_spent
-            elif 8 <= hour < 11:
-                time_slots['9AM'] += log.time_spent
-            elif 11 <= hour < 13:
-                time_slots['12PM'] += log.time_spent
-            elif 13 <= hour < 16:
-                time_slots['2PM'] += log.time_spent
-            elif 16 <= hour < 18:
-                time_slots['5PM'] += log.time_spent
-            elif 18 <= hour < 20:
-                time_slots['7PM'] += log.time_spent
-            else:
-                time_slots['Now'] += log.time_spent
-                
-        activity_slots = {slot: round(dur.total_seconds() / 60.0, 1) for slot, dur in time_slots.items()}
+        # 3. Activity Breakdown based on period
+        activity_slots = {}
+        activity_label = ""
         today_total_minutes = round((today_logs.aggregate(total=Sum('time_spent'))['total'] or timedelta(0)).total_seconds() / 60.0, 1)
+
+        if period == 'weekly':
+            week_days = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
+            time_slots = {day: timedelta(0) for day in week_days}
+            period_logs = ReadingLog.objects.filter(user=user, timestamp__date__gte=period_start)
+            for log in period_logs:
+                day_name = week_days[log.timestamp.weekday()]
+                time_slots[day_name] += log.time_spent
+            activity_slots = {day: round(dur.total_seconds() / 60.0, 1) for day, dur in time_slots.items()}
+            activity_label = f"You've read {hours_read} hours this week"
+        elif period == 'monthly':
+            weeks = ['W1', 'W2', 'W3', 'W4']
+            time_slots = {w: timedelta(0) for w in weeks}
+            period_logs = ReadingLog.objects.filter(user=user, timestamp__date__gte=period_start)
+            for log in period_logs:
+                day = log.timestamp.day
+                if 1 <= day <= 7:
+                    time_slots['W1'] += log.time_spent
+                elif 8 <= day <= 14:
+                    time_slots['W2'] += log.time_spent
+                elif 15 <= day <= 21:
+                    time_slots['W3'] += log.time_spent
+                else:
+                    time_slots['W4'] += log.time_spent
+            activity_slots = {w: round(dur.total_seconds() / 60.0, 1) for w, dur in time_slots.items()}
+            activity_label = f"You've read {hours_read} hours this month"
+        else:
+            time_slots = {
+                '6AM': timedelta(0),
+                '9AM': timedelta(0),
+                '12PM': timedelta(0),
+                '2PM': timedelta(0),
+                '5PM': timedelta(0),
+                '7PM': timedelta(0),
+                'Now': timedelta(0)
+            }
+            for log in today_logs:
+                hour = timezone.localtime(log.timestamp).hour
+                if 5 <= hour < 8:
+                    time_slots['6AM'] += log.time_spent
+                elif 8 <= hour < 11:
+                    time_slots['9AM'] += log.time_spent
+                elif 11 <= hour < 13:
+                    time_slots['12PM'] += log.time_spent
+                elif 13 <= hour < 16:
+                    time_slots['2PM'] += log.time_spent
+                elif 16 <= hour < 18:
+                    time_slots['5PM'] += log.time_spent
+                elif 18 <= hour < 20:
+                    time_slots['7PM'] += log.time_spent
+                else:
+                    time_slots['Now'] += log.time_spent
+            activity_slots = {slot: round(dur.total_seconds() / 60.0, 1) for slot, dur in time_slots.items()}
+            activity_label = f"You've read {today_total_minutes:.0f} minutes today"
 
         # 4. Recent Achievements
         earned_achievements = UserAchievement.objects.filter(user=user).select_related('achievement').order_by('-earned_at')
@@ -136,6 +163,49 @@ class UserProgressView(APIView):
                     user_progress.points += ch_ach.points_bonus
                     user_progress.save(update_fields=['points'])
 
+        # 7. Continue Learning
+        recent_surah_data = None
+        if user_progress.last_read_surah:
+            lrs = user_progress.last_read_surah
+            read_count = ReadVerse.objects.filter(user=user, surah=lrs).count()
+            recent_surah_data = {
+                "id": lrs.id,
+                "title": lrs.title,
+                "english_name": lrs.english_name,
+                "total_verses": lrs.total_verses,
+                "verses_read": read_count,
+            }
+        else:
+            lrs = Surah.objects.filter(id=67).first()
+            if lrs:
+                recent_surah_data = {
+                    "id": lrs.id,
+                    "title": lrs.title,
+                    "english_name": lrs.english_name,
+                    "total_verses": lrs.total_verses,
+                    "verses_read": 22,
+                }
+
+        completed_surah_data = None
+        last_completion = UserSurahCompletion.objects.filter(user=user).select_related('surah').order_by('-completed_at').first()
+        if last_completion:
+            cs = last_completion.surah
+            completed_surah_data = {
+                "id": cs.id,
+                "title": cs.title,
+                "english_name": cs.english_name,
+                "total_verses": cs.total_verses,
+            }
+        else:
+            cs = Surah.objects.filter(id=1).first()
+            if cs:
+                completed_surah_data = {
+                    "id": cs.id,
+                    "title": cs.title,
+                    "english_name": cs.english_name,
+                    "total_verses": cs.total_verses,
+                }
+
         response_data = {
             "period": period,
             "stats": {
@@ -149,10 +219,9 @@ class UserProgressView(APIView):
                 "percentage": completion_percentage,
                 "growth": f"+{growth}%" if growth >= 0 else f"{growth}%"
             },
-            "daily_activity": {
+            "activity_breakdown": {
                 "slots": activity_slots,
-                "total_minutes_today": today_total_minutes,
-                "label": f"You've read {today_total_minutes:.0f} minutes today"
+                "label": activity_label
             },
             "recent_achievements": achievements_data,
             "monthly_goal": {
@@ -170,7 +239,11 @@ class UserProgressView(APIView):
                 "target": weekly_challenge_target,
                 "percentage": weekly_challenge_percentage
             },
-            "total_points": user_progress.points
+            "total_points": user_progress.points,
+            "continue_learning": {
+                "recent_surah": recent_surah_data,
+                "completed_surah": completed_surah_data,
+            }
         }
         return Response(response_data)
 
@@ -325,6 +398,11 @@ class GlobalLeaderboardView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        for u in User.objects.filter(is_active=True):
+            UserProgress.objects.get_or_create(user=u)
+
         entries = (
             UserProgress.objects
             .select_related('user')

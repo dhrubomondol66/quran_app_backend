@@ -520,6 +520,31 @@ class LeaderBoardView(APIView):
             raise ValidationError({"community": "Query param 'community' is required."})
         community = get_object_or_404(CreateCommunity, pk=community_id)
         _require_member(community, request.user)
+
+        # Sync LeaderBoard entries for all members
+        memberships = CommunityMembers.objects.filter(community=community).select_related("user")
+        from progress.models import UserProgress
+        for member in memberships:
+            up, _ = UserProgress.objects.get_or_create(user=member.user)
+            lb_entry, _ = LeaderBoard.objects.get_or_create(
+                user=member.user,
+                community=community,
+            )
+            if lb_entry.points != up.points:
+                lb_entry.points = up.points
+                lb_entry.save(update_fields=['points'])
+
+        # Sync community owner/creator too
+        owner = community.user
+        up, _ = UserProgress.objects.get_or_create(user=owner)
+        lb_entry, _ = LeaderBoard.objects.get_or_create(
+            user=owner,
+            community=community,
+        )
+        if lb_entry.points != up.points:
+            lb_entry.points = up.points
+            lb_entry.save(update_fields=['points'])
+
         entries = LeaderBoard.objects.filter(community=community).select_related(
             "user"
         ).order_by("-points")
