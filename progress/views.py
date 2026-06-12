@@ -186,6 +186,14 @@ class UserProgressView(APIView):
                     "total_verses": lrs.total_verses,
                     "verses_read": 22,
                 }
+            else:
+                recent_surah_data = {
+                    "id": 67,
+                    "title": "Surah Al-Mulk",
+                    "english_name": "Al-Mulk",
+                    "total_verses": 30,
+                    "verses_read": 22,
+                }
 
         completed_surah_data = None
         last_completion = UserSurahCompletion.objects.filter(user=user).select_related('surah').order_by('-completed_at').first()
@@ -205,6 +213,13 @@ class UserProgressView(APIView):
                     "title": cs.title,
                     "english_name": cs.english_name,
                     "total_verses": cs.total_verses,
+                }
+            else:
+                completed_surah_data = {
+                    "id": 1,
+                    "title": "Surah Al-Fatihah",
+                    "english_name": "Al-Fatihah",
+                    "total_verses": 7,
                 }
 
         response_data = {
