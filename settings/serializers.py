@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Settings, Notification, AddFeature, Feedback, FCMDevice
+from .models import Settings, Notification, AddFeature, Feedback, FCMDevice, AppRating
 
 class SettingsSerializer(serializers.ModelSerializer):
     class Meta:
@@ -40,3 +40,21 @@ class DeleteAccountSerializer(serializers.Serializer):
         if not user.check_password(value):
             raise serializers.ValidationError("Incorrect password.")
         return value
+
+class AppRatingSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source='user.username', read_only=True)
+    email = serializers.CharField(source='user.email', read_only=True)
+
+    class Meta:
+        model = AppRating
+        fields = ['id', 'username', 'email', 'rating', 'review', 'created_at']
+        read_only_fields = ['id', 'created_at']
+
+class AdminAddFeatureSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source='user.username', read_only=True)
+    email = serializers.CharField(source='user.email', read_only=True)
+
+    class Meta:
+        model = AddFeature
+        fields = ['id', 'username', 'email', 'select_category', 'feature_description', 'created_at']
+        read_only_fields = ['id', 'created_at']

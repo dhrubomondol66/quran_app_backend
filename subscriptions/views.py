@@ -12,8 +12,8 @@ from rest_framework.views import APIView
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 
-from .models import Subscription
-from .serializers import SubscriptionSerializer
+from .models import Subscription, PaymentHistory
+from .serializers import SubscriptionSerializer, PaymentHistorySerializer
 from .services import user_has_active_subscription
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
@@ -235,12 +235,22 @@ class StripeWebhookView(APIView):
                 )
                 sub.save()
 
+                # Log payment history
+                amount = invoice.get("amount_paid", 0) / 100
+                PaymentHistory.objects.create(
+                    user=sub.user,
+                    stripe_invoice_id=invoice.get("id", ""),
+                    amount=amount,
+                    currency=invoice.get("currency", "usd"),
+                    status="paid",
+                    plan=sub.plan
+                )
+
                 try:
                     from django.contrib.auth import get_user_model
                     from settings.notifications import send_push_notification
                     User = get_user_model()
                     admins = User.objects.filter(is_admin=True)
-                    amount = invoice.get("amount_paid", 0) / 100
                     send_push_notification(
                         user_or_users=admins,
                         title="New Subscription Payment",
@@ -254,6 +264,24 @@ class StripeWebhookView(APIView):
             except Subscription.DoesNotExist:
                 pass
 
+        elif event["type"] == "invoice.payment_failed":
+            invoice = event["data"]["object"]
+            stripe_sub_id = invoice.get("subscription")
+            try:
+                sub = Subscription.objects.get(stripe_subscription_id=stripe_sub_id)
+                sub.is_active = False
+                sub.save()
+                PaymentHistory.objects.create(
+                    user=sub.user,
+                    stripe_invoice_id=invoice.get("id", ""),
+                    amount=invoice.get("amount_due", 0) / 100,
+                    currency=invoice.get("currency", "usd"),
+                    status="failed",
+                    plan=sub.plan
+                )
+            except Subscription.DoesNotExist:
+                pass
+
         elif event["type"] == "customer.subscription.deleted":
             stripe_sub_id = event["data"]["object"]["id"]
             Subscription.objects.filter(
@@ -261,3 +289,55 @@ class StripeWebhookView(APIView):
             ).update(is_active=False)
 
         return Response({"status": "ok"})
+
+class UserSubscriptionPlansView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from adminDashboard.models import SubscriptionPlan
+        from adminDashboard.serializers import SubscriptionPlanSerializer
+        plans = SubscriptionPlan.objects.filter(is_active=True).order_by('interval')
+        return Response(SubscriptionPlanSerializer(plans, many=True).data)
+
+class ToggleAutoRenewalView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['auto_renew'],
+            properties={
+                'auto_renew': openapi.Schema(type=openapi.TYPE_BOOLEAN, description='Enable or disable auto-renewal'),
+            }
+        )
+    )
+    def post(self, request):
+        subscription = request.user.subscription.first()
+        if not subscription or not subscription.stripe_subscription_id:
+            return Response({"detail": "No active subscription found."}, status=status.HTTP_404_NOT_FOUND)
+
+        auto_renew = request.data.get('auto_renew')
+        if auto_renew is None:
+            return Response({"detail": "auto_renew parameter is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            stripe.Subscription.modify(
+                subscription.stripe_subscription_id,
+                cancel_at_period_end=not auto_renew
+            )
+            subscription.auto_renew = auto_renew
+            subscription.save()
+            return Response({
+                "message": f"Auto-renewal {'enabled' if auto_renew else 'disabled'} successfully.",
+                "auto_renew": subscription.auto_renew
+            })
+        except stripe.error.StripeError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+class PaymentHistoryView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        history = PaymentHistory.objects.filter(user=request.user).order_by('-created_at')
+        serializer = PaymentHistorySerializer(history, many=True)
+        return Response(serializer.data)

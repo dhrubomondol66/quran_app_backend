@@ -551,3 +551,42 @@ class SubscriptionPlanDetailView(APIView):
 
         plan.delete()
         return Response({'message': 'Plan deleted'}, status=status.HTTP_200_OK)
+
+class AdminAddFeatureView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if not request.user.is_admin:
+            return Response({'error': 'Admin access required'}, status=status.HTTP_403_FORBIDDEN)
+        
+        from settings.models import AddFeature
+        from settings.serializers import AdminAddFeatureSerializer
+        features = AddFeature.objects.all().select_related('user').order_by('-created_at')
+        serializer = AdminAddFeatureSerializer(features, many=True)
+        return Response(serializer.data)
+
+class AdminAppRatingView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if not request.user.is_admin:
+            return Response({'error': 'Admin access required'}, status=status.HTTP_403_FORBIDDEN)
+
+        from settings.models import AppRating
+        from settings.serializers import AppRatingSerializer
+        ratings = AppRating.objects.all().select_related('user').order_by('-created_at')
+        serializer = AppRatingSerializer(ratings, many=True)
+        return Response(serializer.data)
+
+class AdminPaymentHistoryView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if not request.user.is_admin:
+            return Response({'error': 'Admin access required'}, status=status.HTTP_403_FORBIDDEN)
+
+        from subscriptions.models import PaymentHistory
+        from subscriptions.serializers import PaymentHistorySerializer
+        history = PaymentHistory.objects.all().select_related('user').order_by('-created_at')
+        serializer = PaymentHistorySerializer(history, many=True)
+        return Response(serializer.data)

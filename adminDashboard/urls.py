@@ -10,7 +10,10 @@ from .views import (
     LibraryContentDetailView,
     SubscriptionPlanView,
     SubscriptionPlanDetailView,
-    UserManagementActionView
+    UserManagementActionView,
+    AdminAddFeatureView,
+    AdminAppRatingView,
+    AdminPaymentHistoryView,
 )
 
 urlpatterns = [
@@ -24,6 +27,9 @@ urlpatterns = [
     path('user-management/',        UserManagementView.as_view(),        name='user-management'),
     path('user-management/<int:user_id>/<str:action>/', UserManagementActionView.as_view(), name='user-management-action'),
     path('profile-settings/',       ProfileSettingsView.as_view(),        name='profile-settings'),
+    path('feature-requests/',       AdminAddFeatureView.as_view(),        name='feature-requests'),
+    path('ratings/',                AdminAppRatingView.as_view(),         name='ratings'),
+    path('payment-history/',        AdminPaymentHistoryView.as_view(),    name='payment-history'),
 
     # Library
     path('library/',           LibraryContentView.as_view(),         name='library-list'),

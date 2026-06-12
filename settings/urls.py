@@ -6,6 +6,7 @@ from .views import (
     FeedbackView,
     DeleteAccountView,
     FCMDeviceRegisterView,
+    AppRatingView,
 )
 
 urlpatterns = [
@@ -15,4 +16,5 @@ urlpatterns = [
     path('add-feature/', AddFeatureView.as_view()),
     path('feedback/', FeedbackView.as_view()),
     path('delete-account/', DeleteAccountView.as_view()),
+    path('rate-app/', AppRatingView.as_view()),
 ]

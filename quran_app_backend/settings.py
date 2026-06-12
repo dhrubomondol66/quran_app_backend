@@ -186,9 +186,12 @@ REST_FRAMEWORK = {
 }
 
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
+    'ACCESS_TOKEN_LIFETIME': timedelta(days=3650),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=3650),
 }
+
+SESSION_COOKIE_AGE = 315360000  # 10 years in seconds
+SESSION_SAVE_EVERY_REQUEST = True
 
 
 # Password validation

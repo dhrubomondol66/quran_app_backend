@@ -3,7 +3,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
-from .models import Settings, Notification, AddFeature, Feedback, FCMDevice
+from .models import Settings, Notification, AddFeature, Feedback, FCMDevice, AppRating
 from .serializers import (
     SettingsSerializer,
     NotificationSerializer,
@@ -11,6 +11,7 @@ from .serializers import (
     FeedbackSerializer,
     DeleteAccountSerializer,
     FCMDeviceSerializer,
+    AppRatingSerializer,
 )
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
@@ -99,7 +100,20 @@ class DeleteAccountView(APIView):
         )
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        request.user.delete()
+        
+        user = request.user
+        # Cancel any active subscription on Stripe
+        try:
+            subscription = user.subscription.first()
+            if subscription and subscription.stripe_subscription_id:
+                import stripe
+                from django.conf import settings
+                stripe.api_key = settings.STRIPE_SECRET_KEY
+                stripe.Subscription.delete(subscription.stripe_subscription_id)
+        except Exception as e:
+            print(f"Failed to cancel Stripe subscription during account deletion: {e}")
+
+        user.delete()
         return Response(
             {"message": "Your account has been deleted successfully."},
             status=status.HTTP_200_OK,
@@ -149,3 +163,19 @@ class FCMDeviceRegisterView(APIView):
         if deleted:
             return Response({'message': 'Device unregistered successfully.'}, status=status.HTTP_200_OK)
         return Response({'error': 'Device token not found for this user.'}, status=status.HTTP_404_NOT_FOUND)
+
+class AppRatingView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        ratings = AppRating.objects.filter(user=request.user)
+        serializer = AppRatingSerializer(ratings, many=True)
+        return Response(serializer.data)
+
+    @swagger_auto_schema(request_body=AppRatingSerializer)
+    def post(self, request):
+        serializer = AppRatingSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save(user=request.user)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

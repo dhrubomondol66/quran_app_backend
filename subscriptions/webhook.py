@@ -4,7 +4,7 @@ from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
 
-from .models import Subscription
+from .models import Subscription, PaymentHistory
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
@@ -43,7 +43,7 @@ def stripe_webhook(request):
         )
 
         user = User.objects.get(id=user_id)
-        Subscription.objects.update_or_create(
+        sub, _ = Subscription.objects.update_or_create(
             user=user,
             defaults={
                 "stripe_subscription_id": stripe_sub_id,
@@ -52,6 +52,16 @@ def stripe_webhook(request):
                 "is_active": True,
                 "expires_at": expires_at,
             },
+        )
+
+        # Record payment history
+        PaymentHistory.objects.create(
+            user=user,
+            stripe_invoice_id=obj.get("invoice", "") or "",
+            amount=obj.get("amount_total", 0) / 100,
+            currency=obj.get("currency", "usd"),
+            status="paid",
+            plan=plan
         )
 
         try:
@@ -76,18 +86,36 @@ def stripe_webhook(request):
             expires_at = timezone.datetime.fromtimestamp(
                 stripe_sub["current_period_end"], tz=timezone.utc
             )
-            Subscription.objects.filter(stripe_subscription_id=stripe_sub_id).update(
-                is_active=True,
-                expires_at=expires_at,
-            )
+            sub = Subscription.objects.filter(stripe_subscription_id=stripe_sub_id).first()
+            if sub:
+                sub.is_active = True
+                sub.expires_at = expires_at
+                sub.save()
+                PaymentHistory.objects.create(
+                    user=sub.user,
+                    stripe_invoice_id=obj.get("id", ""),
+                    amount=obj.get("amount_paid", 0) / 100,
+                    currency=obj.get("currency", "usd"),
+                    status="paid",
+                    plan=sub.plan
+                )
 
     # ── Payment failed → deactivate ─────────────────────────────────────────
     elif event_type == "invoice.payment_failed":
         stripe_sub_id = obj.get("subscription")
         if stripe_sub_id:
-            Subscription.objects.filter(stripe_subscription_id=stripe_sub_id).update(
-                is_active=False,
-            )
+            sub = Subscription.objects.filter(stripe_subscription_id=stripe_sub_id).first()
+            if sub:
+                sub.is_active = False
+                sub.save()
+                PaymentHistory.objects.create(
+                    user=sub.user,
+                    stripe_invoice_id=obj.get("id", ""),
+                    amount=obj.get("amount_due", 0) / 100,
+                    currency=obj.get("currency", "usd"),
+                    status="failed",
+                    plan=sub.plan
+                )
 
     # ── Cancelled → deactivate ──────────────────────────────────────────────
     elif event_type == "customer.subscription.deleted":
