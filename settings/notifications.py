@@ -71,6 +71,40 @@ def send_push_notification(user_or_users, title, body, notification_type='genera
             body=body
         )
 
+        # Configure Android-specific notification settings (high priority, heads-up)
+        android_config = messaging.AndroidConfig(
+            priority='high',
+            notification=messaging.AndroidNotification(
+                title=title,
+                body=body,
+                channel_id='high_importance_channel',
+                click_action='FLUTTER_NOTIFICATION_CLICK',
+                priority='high',
+                default_sound=True,
+                default_vibrate_timings=True
+            )
+        )
+
+        # Configure APNs (iOS) push options for background delivery and sound
+        apns_config = messaging.APNSConfig(
+            headers={
+                'apns-priority': '10',  # Immediately deliver the message (wakes the device)
+                'apns-push-type': 'alert'  # Declares that this notification is user-visible
+            },
+            payload=messaging.APNSPayload(
+                aps=messaging.Aps(
+                    alert=messaging.ApsAlert(
+                        title=title,
+                        body=body
+                    ),
+                    sound='default',
+                    badge=1,
+                    content_available=True,
+                    mutable_content=True
+                )
+            )
+        )
+
         # Prepare stringified key-value data payload for FCM
         fcm_data = {
             "notification_type": str(notification_type),
@@ -87,7 +121,9 @@ def send_push_notification(user_or_users, title, body, notification_type='genera
             message = messaging.MulticastMessage(
                 notification=fcm_notification,
                 data=fcm_data,
-                tokens=token_chunk
+                tokens=token_chunk,
+                android=android_config,
+                apns=apns_config
             )
             response = messaging.send_multicast(message)
             
