@@ -318,3 +318,32 @@ class LogReadingView(APIView):
             "total_points": user_progress.points,
             "current_streak": user_progress.reading_streak
         })
+
+
+class GlobalLeaderboardView(APIView):
+    """Return all users sorted by points (descending) for the global leaderboard."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        entries = (
+            UserProgress.objects
+            .select_related('user')
+            .order_by('-points')[:50]
+        )
+        results = []
+        for entry in entries:
+            user = entry.user
+            photo_url = None
+            if user.photo:
+                photo_url = request.build_absolute_uri(user.photo.url)
+            results.append({
+                "user": {
+                    "id": user.id,
+                    "username": user.username,
+                    "email": user.email,
+                    "photo": photo_url,
+                },
+                "points": entry.points,
+                "reading_streak": entry.reading_streak,
+            })
+        return Response(results)

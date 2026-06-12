@@ -5,6 +5,11 @@ from .models import UserProfile, HomeContent
 from .serializers import UserProfileSerializer, HomeContentSerializer
 from drf_yasg.utils import swagger_auto_schema
 
+from progress.models import UserProgress, ReadingLog
+from django.utils import timezone
+from django.db.models import Sum
+from datetime import timedelta
+
 class UserProfileView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -27,6 +32,22 @@ class HomeContentView(APIView):
 
     def get(self, request):
         home_content, _ = HomeContent.objects.get_or_create(user_id=request.user)
+        try:
+            progress, _ = UserProgress.objects.get_or_create(user=request.user)
+            home_content.daily_streak = progress.reading_streak
+            
+            today = timezone.localtime(timezone.now()).date()
+            today_logs = ReadingLog.objects.filter(user=request.user, timestamp__date=today)
+            total_duration = today_logs.aggregate(total=Sum('time_spent'))['total'] or timedelta(0)
+            home_content.time_spent = total_duration
+            
+            from community.models import CreateCommunity, CommunityMembers
+            home_content.community_created = CreateCommunity.objects.filter(user=request.user).count()
+            home_content.community_joined = CommunityMembers.objects.filter(user=request.user).count()
+            home_content.save()
+        except Exception as e:
+            print("Error syncing HomeContent: ", e)
+
         serializer = HomeContentSerializer(home_content)
         return Response(serializer.data)
 
