@@ -80,6 +80,7 @@ class UserProgressView(APIView):
             growth = 100.0 if current_verses_count > 0 else 0.0
             
         # 3. Activity Breakdown based on period
+        today_logs = ReadingLog.objects.filter(user=user, timestamp__date=today)
         activity_slots = {}
         activity_label = ""
         today_total_minutes = round((today_logs.aggregate(total=Sum('time_spent'))['total'] or timedelta(0)).total_seconds() / 60.0, 1)
