@@ -77,7 +77,7 @@ def send_push_notification(user_or_users, title, body, notification_type='genera
             notification=messaging.AndroidNotification(
                 title=title,
                 body=body,
-                channel_id='high_importance_channel',
+                channel_id='high_importance_channel_v2',
                 click_action='FLUTTER_NOTIFICATION_CLICK',
                 priority='high',
                 default_sound=True,
@@ -125,7 +125,7 @@ def send_push_notification(user_or_users, title, body, notification_type='genera
                 android=android_config,
                 apns=apns_config
             )
-            response = messaging.send_multicast(message)
+            response = messaging.send_each_for_multicast(message)
             
             logger.info(f"FCM multicast batch sent. Success: {response.success_count}, Failure: {response.failure_count}")
             print(f"[Firebase Messaging] Sent '{title}' successfully to {response.success_count} devices, failed for {response.failure_count}.")
