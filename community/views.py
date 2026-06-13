@@ -78,6 +78,19 @@ class CommunityDetailView(APIView):
         serializer = CommunityDetailSerializer(community, context={"request": request})
         return Response(serializer.data)
 
+    @swagger_auto_schema(request_body=CreateCommunitySerializer)
+    def put(self, request, pk):
+        community = get_object_or_404(CreateCommunity, pk=pk)
+        _require_owner(community, request.user)
+        serializer = CreateCommunitySerializer(community, data=request.data, partial=True)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        serializer.save()
+        updated_community = get_object_or_404(_community_queryset(), pk=pk)
+        return Response(
+            CommunityDetailSerializer(updated_community, context={"request": request}).data
+        )
+
 
 class CommunityMembersListView(APIView):
     permission_classes = [IsAuthenticated]
