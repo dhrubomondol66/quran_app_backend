@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timezone as datetime_timezone
 import stripe
 from django.conf import settings
 from django.utils import timezone
@@ -231,7 +231,7 @@ class StripeWebhookView(APIView):
                 
                 sub.is_active = True
                 sub.expires_at = datetime.fromtimestamp(
-                    stripe_sub.current_period_end, tz=timezone.utc
+                    stripe_sub.current_period_end, tz=datetime_timezone.utc
                 )
                 sub.save()
 
@@ -376,7 +376,7 @@ class RestoreSubscriptionView(APIView):
             sub_obj.stripe_subscription_id = stripe_sub.id
             sub_obj.plan = plan_interval
             sub_obj.is_active = True
-            sub_obj.expires_at = datetime.fromtimestamp(stripe_sub.current_period_end, tz=timezone.utc)
+            sub_obj.expires_at = datetime.fromtimestamp(stripe_sub.current_period_end, tz=datetime_timezone.utc)
             sub_obj.save()
 
             return Response({
@@ -446,7 +446,7 @@ class ConfirmPaymentView(APIView):
             if stripe_sub.status in ["active", "trialing"] or invoice_paid:
                 sub.is_active = True
                 sub.expires_at = datetime.fromtimestamp(
-                    stripe_sub.current_period_end, tz=timezone.utc
+                    stripe_sub.current_period_end, tz=datetime_timezone.utc
                 )
                 sub.save()
 
