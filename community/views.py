@@ -135,7 +135,7 @@ class CreateCommunityView(APIView):
 
 
 class JoinCommunityView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasActiveSubscription]
 
     @swagger_auto_schema(
         request_body=openapi.Schema(
@@ -287,7 +287,7 @@ class RespondJoinRequestView(APIView):
 
 
 class LeaveCommunityView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasActiveSubscription]
 
     @swagger_auto_schema(
         request_body=openapi.Schema(
@@ -457,7 +457,7 @@ class RemoveCommunityMemberView(APIView):
 
 
 class CommunityPostsView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasActiveSubscription]
 
     def get(self, request):
         community_id = request.query_params.get("community")
@@ -489,7 +489,7 @@ class CommunityPostsView(APIView):
 class CommunityAudioView(APIView):
     """Quran audio from the library — available to community members."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasActiveSubscription]
 
     def get(self, request, pk):
         community = get_object_or_404(CreateCommunity, pk=pk)
@@ -512,7 +512,7 @@ class CommunityAudioView(APIView):
 
 
 class LeaderBoardView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasActiveSubscription]
 
     def get(self, request):
         community_id = request.query_params.get("community")
