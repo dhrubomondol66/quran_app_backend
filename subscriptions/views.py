@@ -414,29 +414,41 @@ class ConfirmPaymentView(APIView):
 
             plan_name = stripe_sub.metadata.get("plan", "monthly")
             sub.plan = plan_name
+
+            invoice_id = stripe_sub.latest_invoice
+            amount = 20.0
+            currency = "usd"
+            invoice_id_str = ""
+            invoice_paid = False
+
+            if invoice_id:
+                try:
+                    if isinstance(invoice_id, str):
+                        invoice = stripe.Invoice.retrieve(invoice_id)
+                    else:
+                        invoice = invoice_id
+                    invoice_id_str = invoice.get("id", "")
+                    amount = (invoice.get("amount_paid") or invoice.get("amount_due") or 0) / 100
+                    currency = invoice.get("currency", "usd")
+                    
+                    if invoice.get("status") == "paid" or (invoice.get("amount_paid") and invoice.get("amount_paid") > 0):
+                        invoice_paid = True
+                    else:
+                        pay_intent_id = invoice.get("payment_intent")
+                        if pay_intent_id and isinstance(pay_intent_id, str):
+                            pi = stripe.PaymentIntent.retrieve(pay_intent_id)
+                            if pi.get("status") == "succeeded":
+                                invoice_paid = True
+                except Exception as ex:
+                    print(f"Error checking invoice status: {ex}")
+                    invoice_id_str = str(invoice_id) if isinstance(invoice_id, str) else ""
             
-            if stripe_sub.status in ["active", "trialing"]:
+            if stripe_sub.status in ["active", "trialing"] or invoice_paid:
                 sub.is_active = True
                 sub.expires_at = datetime.fromtimestamp(
                     stripe_sub.current_period_end, tz=timezone.utc
                 )
                 sub.save()
-
-                invoice_id = stripe_sub.latest_invoice
-                amount = 20.0
-                currency = "usd"
-                invoice_id_str = ""
-                if invoice_id:
-                    try:
-                        if isinstance(invoice_id, str):
-                            invoice = stripe.Invoice.retrieve(invoice_id)
-                        else:
-                            invoice = invoice_id
-                        amount = (invoice.get("amount_paid") or invoice.get("amount_due") or 0) / 100
-                        currency = invoice.get("currency", "usd")
-                        invoice_id_str = invoice.get("id", "")
-                    except Exception:
-                        invoice_id_str = str(invoice_id) if isinstance(invoice_id, str) else ""
 
                 payment_exists = PaymentHistory.objects.filter(
                     user=request.user,
@@ -462,7 +474,7 @@ class ConfirmPaymentView(APIView):
             else:
                 return Response({
                     "status": stripe_sub.status,
-                    "message": f"Subscription status is {stripe_sub.status}."
+                    "message": f"Subscription status is {stripe_sub.status} and invoice is unpaid."
                 }, status=status.HTTP_400_BAD_REQUEST)
 
         except stripe.error.StripeError as e:
