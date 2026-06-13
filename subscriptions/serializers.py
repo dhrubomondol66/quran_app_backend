@@ -3,11 +3,14 @@ from .models import Subscription, PaymentHistory
 
 
 class SubscriptionSerializer(serializers.ModelSerializer):
-    is_valid = serializers.BooleanField(read_only=True)
+    is_valid_subscription = serializers.SerializerMethodField()
 
     class Meta:
         model = Subscription
-        fields = ["id", "plan", "is_active", "auto_renew", "started_at", "expires_at", "is_valid"]
+        fields = ["id", "plan", "is_active", "auto_renew", "started_at", "expires_at", "is_valid_subscription"]
+
+    def get_is_valid_subscription(self, obj):
+        return obj.is_valid()
 
 class CreateSubscriptionSerializer(serializers.ModelSerializer):
     class Meta:

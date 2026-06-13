@@ -405,58 +405,82 @@ class ConfirmPaymentView(APIView):
 
         try:
             stripe_sub = stripe.Subscription.retrieve(sub_id)
-            
+
             sub = Subscription.objects.filter(stripe_subscription_id=sub_id, user=request.user).first()
             if not sub:
                 sub = Subscription.objects.filter(user=request.user).first()
                 if not sub:
                     sub = Subscription.objects.create(user=request.user)
                 sub.stripe_subscription_id = sub_id
-                sub.stripe_customer_id = stripe_sub.customer
+                sub.stripe_customer_id = getattr(stripe_sub, 'customer', '') or ''
 
-            plan_name = stripe_sub.metadata.get("plan", "monthly")
+            plan_name = (stripe_sub.metadata or {}).get("plan", "monthly") if hasattr(stripe_sub, 'metadata') and stripe_sub.metadata else "monthly"
             sub.plan = plan_name
 
-            invoice_id = stripe_sub.latest_invoice
+            latest_invoice_ref = getattr(stripe_sub, 'latest_invoice', None)
             amount = 20.0
             currency = "usd"
             invoice_id_str = ""
             invoice_paid = False
 
-            if invoice_id:
+            if latest_invoice_ref:
                 try:
-                    if isinstance(invoice_id, str):
-                        invoice = stripe.Invoice.retrieve(invoice_id)
+                    if isinstance(latest_invoice_ref, str):
+                        invoice = stripe.Invoice.retrieve(latest_invoice_ref)
                     else:
-                        invoice = invoice_id
-                    invoice_id_str = invoice.get("id", "")
-                    amount = (invoice.get("amount_paid") or invoice.get("amount_due") or 0) / 100
-                    currency = invoice.get("currency", "usd")
-                    
-                    if invoice.get("status") == "paid" or (invoice.get("amount_paid") and invoice.get("amount_paid") > 0):
+                        invoice = latest_invoice_ref
+
+                    # Use getattr for Stripe objects (they use attribute access, not dict)
+                    invoice_id_str = getattr(invoice, 'id', '') or ''
+                    amount_paid_raw = getattr(invoice, 'amount_paid', None) or 0
+                    amount_due_raw = getattr(invoice, 'amount_due', None) or 0
+                    amount = (amount_paid_raw or amount_due_raw) / 100
+                    currency = getattr(invoice, 'currency', 'usd') or 'usd'
+                    invoice_status = getattr(invoice, 'status', '') or ''
+
+                    if invoice_status == "paid" or (amount_paid_raw and amount_paid_raw > 0):
                         invoice_paid = True
                     else:
-                        pay_intent_id = invoice.get("payment_intent")
-                        if pay_intent_id and isinstance(pay_intent_id, str):
-                            pi = stripe.PaymentIntent.retrieve(pay_intent_id)
-                            if pi.get("status") == "succeeded":
-                                invoice_paid = True
+                        pay_intent_ref = getattr(invoice, 'payment_intent', None)
+                        if pay_intent_ref:
+                            pi_id = pay_intent_ref if isinstance(pay_intent_ref, str) else getattr(pay_intent_ref, 'id', None)
+                            if pi_id:
+                                pi = stripe.PaymentIntent.retrieve(pi_id)
+                                if getattr(pi, 'status', '') == "succeeded":
+                                    invoice_paid = True
                 except Exception as ex:
                     print(f"Error checking invoice status: {ex}")
-                    invoice_id_str = str(invoice_id) if isinstance(invoice_id, str) else ""
-            
-            if stripe_sub.status in ["active", "trialing"] or invoice_paid:
+                    invoice_id_str = str(latest_invoice_ref) if isinstance(latest_invoice_ref, str) else ""
+
+            sub_status = getattr(stripe_sub, 'status', '') or ''
+            if sub_status in ["active", "trialing"] or invoice_paid:
                 sub.is_active = True
-                sub.expires_at = datetime.fromtimestamp(
-                    stripe_sub.current_period_end, tz=datetime_timezone.utc
-                )
+                period_end = getattr(stripe_sub, 'current_period_end', None)
+                if period_end:
+                    sub.expires_at = datetime.fromtimestamp(
+                        period_end, tz=datetime_timezone.utc
+                    )
                 sub.save()
 
-                payment_exists = PaymentHistory.objects.filter(
-                    user=request.user,
-                    stripe_invoice_id=invoice_id_str,
-                    status="paid"
-                ).exists()
+                if invoice_id_str:
+                    payment_exists = PaymentHistory.objects.filter(
+                        user=request.user,
+                        stripe_invoice_id=invoice_id_str,
+                        status="paid"
+                    ).exists()
+                else:
+                    # No invoice ID — check if any payment exists for this sub
+                    payment_exists = PaymentHistory.objects.filter(
+                        user=request.user,
+                        plan=plan_name,
+                        status="paid"
+                    ).order_by('-created_at').first() is not None and \
+                    PaymentHistory.objects.filter(
+                        user=request.user,
+                        plan=plan_name,
+                        status="paid",
+                        created_at__gte=timezone.now() - timezone.timedelta(minutes=5)
+                    ).exists()
 
                 if not payment_exists:
                     PaymentHistory.objects.create(
@@ -474,10 +498,16 @@ class ConfirmPaymentView(APIView):
                     "subscription": SubscriptionSerializer(sub).data
                 })
             else:
+                # Even if subscription status is incomplete, save what we have
+                sub.stripe_customer_id = getattr(stripe_sub, 'customer', '') or ''
+                sub.save()
                 return Response({
-                    "status": stripe_sub.status,
-                    "message": f"Subscription status is {stripe_sub.status} and invoice is unpaid."
+                    "status": sub_status,
+                    "message": f"Subscription status is {sub_status}. Payment may still be processing."
                 }, status=status.HTTP_400_BAD_REQUEST)
 
         except stripe.error.StripeError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            print(f"ConfirmPaymentView unexpected error: {e}")
+            return Response({"detail": f"Server error: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
