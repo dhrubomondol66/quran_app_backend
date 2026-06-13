@@ -4,7 +4,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.utils import timezone
 from datetime import timedelta, date
-from django.db.models import Sum, Count, Q
+from django.db.models import Sum, Count, Q, Max
 from django.shortcuts import get_object_or_404
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
@@ -165,35 +165,52 @@ class UserProgressView(APIView):
                     user_progress.save(update_fields=['points'])
 
         # 7. Continue Learning
-        recent_surah_data = None
-        if user_progress.last_read_surah:
-            lrs = user_progress.last_read_surah
-            read_count = ReadVerse.objects.filter(user=user, surah=lrs).count()
-            recent_surah_data = {
-                "id": lrs.id,
-                "title": lrs.title,
-                "english_name": lrs.english_name,
-                "total_verses": lrs.total_verses,
+        # Retrieve the 5 most recently read unique surahs from ReadingLog
+        recent_surahs_query = (
+            ReadingLog.objects.filter(user=user, surah__isnull=False)
+            .values('surah')
+            .annotate(last_read=Max('timestamp'))
+            .order_by('-last_read')[:5]
+        )
+        recent_surah_ids = [item['surah'] for item in recent_surahs_query]
+        surahs_map = {s.id: s for s in Surah.objects.filter(id__in=recent_surah_ids)}
+        recent_surahs_ordered = [surahs_map[sid] for sid in recent_surah_ids if sid in surahs_map]
+
+        recent_surahs_list = []
+        for s in recent_surahs_ordered:
+            read_count = ReadVerse.objects.filter(user=user, surah=s).count()
+            recent_surahs_list.append({
+                "id": s.id,
+                "title": s.title,
+                "english_name": s.english_name,
+                "total_verses": s.total_verses,
                 "verses_read": read_count,
-            }
-        else:
-            lrs = Surah.objects.filter(id=67).first()
+            })
+
+        # Fallback to defaults if list is empty
+        if not recent_surahs_list:
+            lrs = user_progress.last_read_surah
+            if not lrs:
+                lrs = Surah.objects.filter(id=67).first()
             if lrs:
-                recent_surah_data = {
+                read_count = ReadVerse.objects.filter(user=user, surah=lrs).count()
+                recent_surahs_list.append({
                     "id": lrs.id,
                     "title": lrs.title,
                     "english_name": lrs.english_name,
                     "total_verses": lrs.total_verses,
-                    "verses_read": 22,
-                }
+                    "verses_read": read_count,
+                })
             else:
-                recent_surah_data = {
+                recent_surahs_list.append({
                     "id": 67,
                     "title": "Surah Al-Mulk",
                     "english_name": "Al-Mulk",
                     "total_verses": 30,
                     "verses_read": 22,
-                }
+                })
+
+        recent_surah_data = recent_surahs_list[0] if recent_surahs_list else None
 
         completed_surah_data = None
         last_completion = UserSurahCompletion.objects.filter(user=user).select_related('surah').order_by('-completed_at').first()
@@ -258,6 +275,7 @@ class UserProgressView(APIView):
             "total_points": user_progress.points,
             "continue_learning": {
                 "recent_surah": recent_surah_data,
+                "recent_surahs": recent_surahs_list,
                 "completed_surah": completed_surah_data,
             }
         }
