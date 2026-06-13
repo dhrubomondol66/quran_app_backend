@@ -202,6 +202,37 @@ class UserManagementActionView(APIView):
             user_management.user.save(update_fields=['is_active'])
             user_management.actions = 'active'
 
+        elif action == 'reset_data':
+            # 1. Reset progress/activities
+            from progress.models import UserProgress, ReadVerse, ReadingLog, UserSurahCompletion, UserAchievement
+            UserProgress.objects.filter(user=user).delete()
+            ReadVerse.objects.filter(user=user).delete()
+            ReadingLog.objects.filter(user=user).delete()
+            UserSurahCompletion.objects.filter(user=user).delete()
+            UserAchievement.objects.filter(user=user).delete()
+
+            # 2. Reset community / leaderboard
+            from community.models import LeaderBoard, CommunityMembers, InviteMembers, CommunityPosts, JoinRequest
+            LeaderBoard.objects.filter(user=user).delete()
+            CommunityMembers.objects.filter(user=user).delete()
+            InviteMembers.objects.filter(user=user).delete()
+            CommunityPosts.objects.filter(user=user).delete()
+            JoinRequest.objects.filter(user=user).delete()
+
+            # 3. Reset subscription / payment history
+            from subscriptions.models import Subscription, PaymentHistory
+            Subscription.objects.filter(user=user).delete()
+            PaymentHistory.objects.filter(user=user).delete()
+
+            user_management.actions = 'reset_data'
+            user_management.save()
+
+            return Response({
+                'message': 'User data reset successfully',
+                'user_id': user_id,
+                'status': 'reset_data',
+            }, status=status.HTTP_200_OK)
+
         user_management.save()
         return Response({
             'message': f'User {action} successfully',

@@ -385,3 +385,85 @@ class RestoreSubscriptionView(APIView):
             })
         except stripe.error.StripeError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+class ConfirmPaymentView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['subscription_id'],
+            properties={
+                'subscription_id': openapi.Schema(type=openapi.TYPE_STRING, description="Stripe subscription ID to confirm"),
+            }
+        )
+    )
+    def post(self, request):
+        sub_id = request.data.get("subscription_id")
+        if not sub_id:
+            return Response({"detail": "subscription_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            stripe_sub = stripe.Subscription.retrieve(sub_id)
+            
+            sub = Subscription.objects.filter(stripe_subscription_id=sub_id, user=request.user).first()
+            if not sub:
+                sub, _ = Subscription.objects.get_or_create(user=request.user)
+                sub.stripe_subscription_id = sub_id
+                sub.stripe_customer_id = stripe_sub.customer
+
+            plan_name = stripe_sub.metadata.get("plan", "monthly")
+            sub.plan = plan_name
+            
+            if stripe_sub.status in ["active", "trialing"]:
+                sub.is_active = True
+                sub.expires_at = datetime.fromtimestamp(
+                    stripe_sub.current_period_end, tz=timezone.utc
+                )
+                sub.save()
+
+                invoice_id = stripe_sub.latest_invoice
+                amount = 20.0
+                currency = "usd"
+                invoice_id_str = ""
+                if invoice_id:
+                    try:
+                        if isinstance(invoice_id, str):
+                            invoice = stripe.Invoice.retrieve(invoice_id)
+                        else:
+                            invoice = invoice_id
+                        amount = (invoice.get("amount_paid") or invoice.get("amount_due") or 0) / 100
+                        currency = invoice.get("currency", "usd")
+                        invoice_id_str = invoice.get("id", "")
+                    except Exception:
+                        invoice_id_str = str(invoice_id) if isinstance(invoice_id, str) else ""
+
+                payment_exists = PaymentHistory.objects.filter(
+                    user=request.user,
+                    stripe_invoice_id=invoice_id_str,
+                    status="paid"
+                ).exists()
+
+                if not payment_exists:
+                    PaymentHistory.objects.create(
+                        user=request.user,
+                        stripe_invoice_id=invoice_id_str,
+                        amount=amount,
+                        currency=currency,
+                        status="paid",
+                        plan=plan_name
+                    )
+
+                return Response({
+                    "status": "success",
+                    "message": "Payment confirmed and subscription activated.",
+                    "subscription": SubscriptionSerializer(sub).data
+                })
+            else:
+                return Response({
+                    "status": stripe_sub.status,
+                    "message": f"Subscription status is {stripe_sub.status}."
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+        except stripe.error.StripeError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
