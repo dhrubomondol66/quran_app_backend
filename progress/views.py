@@ -187,29 +187,6 @@ class UserProgressView(APIView):
                 "verses_read": read_count,
             })
 
-        # Fallback to defaults if list is empty
-        if not recent_surahs_list:
-            lrs = user_progress.last_read_surah
-            if not lrs:
-                lrs = Surah.objects.filter(id=67).first()
-            if lrs:
-                read_count = ReadVerse.objects.filter(user=user, surah=lrs).count()
-                recent_surahs_list.append({
-                    "id": lrs.id,
-                    "title": lrs.title,
-                    "english_name": getattr(lrs, 'english_name', lrs.title),
-                    "total_verses": lrs.total_verses,
-                    "verses_read": read_count,
-                })
-            else:
-                recent_surahs_list.append({
-                    "id": 67,
-                    "title": "Surah Al-Mulk",
-                    "english_name": "Al-Mulk",
-                    "total_verses": 30,
-                    "verses_read": 22,
-                })
-
         recent_surah_data = recent_surahs_list[0] if recent_surahs_list else None
 
         completed_surah_data = None
@@ -222,22 +199,6 @@ class UserProgressView(APIView):
                 "english_name": getattr(cs, 'english_name', cs.title),
                 "total_verses": cs.total_verses,
             }
-        else:
-            cs = Surah.objects.filter(id=1).first()
-            if cs:
-                completed_surah_data = {
-                    "id": cs.id,
-                    "title": cs.title,
-                    "english_name": getattr(cs, 'english_name', cs.title),
-                    "total_verses": cs.total_verses,
-                }
-            else:
-                completed_surah_data = {
-                    "id": 1,
-                    "title": "Surah Al-Fatihah",
-                    "english_name": "Al-Fatihah",
-                    "total_verses": 7,
-                }
 
         response_data = {
             "period": period,
