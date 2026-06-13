@@ -408,7 +408,9 @@ class ConfirmPaymentView(APIView):
             
             sub = Subscription.objects.filter(stripe_subscription_id=sub_id, user=request.user).first()
             if not sub:
-                sub, _ = Subscription.objects.get_or_create(user=request.user)
+                sub = Subscription.objects.filter(user=request.user).first()
+                if not sub:
+                    sub = Subscription.objects.create(user=request.user)
                 sub.stripe_subscription_id = sub_id
                 sub.stripe_customer_id = stripe_sub.customer
 
