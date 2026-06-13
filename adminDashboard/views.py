@@ -156,9 +156,14 @@ class UserManagementActionView(APIView):
             return Response({'error': 'Admin access required'}, status=status.HTTP_403_FORBIDDEN)
 
         try:
-            user = User.objects.get(id=user_id)
-            user_management, _ = UserManagement.objects.get_or_create(user=user)
-        except User.DoesNotExist:
+            user_mgmt = UserManagement.objects.filter(id=user_id).first()
+            if user_mgmt:
+                user = user_mgmt.user
+                user_management = user_mgmt
+            else:
+                user = User.objects.get(id=user_id)
+                user_management, _ = UserManagement.objects.get_or_create(user=user)
+        except Exception:
             return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
 
         if action == 'delete':
