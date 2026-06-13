@@ -182,7 +182,7 @@ class UserProgressView(APIView):
             recent_surahs_list.append({
                 "id": s.id,
                 "title": s.title,
-                "english_name": s.english_name,
+                "english_name": getattr(s, 'english_name', s.title),
                 "total_verses": s.total_verses,
                 "verses_read": read_count,
             })
@@ -197,7 +197,7 @@ class UserProgressView(APIView):
                 recent_surahs_list.append({
                     "id": lrs.id,
                     "title": lrs.title,
-                    "english_name": lrs.english_name,
+                    "english_name": getattr(lrs, 'english_name', lrs.title),
                     "total_verses": lrs.total_verses,
                     "verses_read": read_count,
                 })
@@ -219,7 +219,7 @@ class UserProgressView(APIView):
             completed_surah_data = {
                 "id": cs.id,
                 "title": cs.title,
-                "english_name": cs.english_name,
+                "english_name": getattr(cs, 'english_name', cs.title),
                 "total_verses": cs.total_verses,
             }
         else:
@@ -228,7 +228,7 @@ class UserProgressView(APIView):
                 completed_surah_data = {
                     "id": cs.id,
                     "title": cs.title,
-                    "english_name": cs.english_name,
+                    "english_name": getattr(cs, 'english_name', cs.title),
                     "total_verses": cs.total_verses,
                 }
             else:
@@ -316,7 +316,39 @@ class LogReadingView(APIView):
         if not all([surah_id, verse_start, verse_end, time_spent_secs]):
             return Response({"error": "Missing parameters. surah_id, verse_start, verse_end, and time_spent are required."}, status=400)
 
-        surah = get_object_or_404(Surah, id=surah_id)
+        # Get or create Surah & Verses dynamically to prevent 404/database-miss errors
+        import requests
+        surah = Surah.objects.filter(id=surah_id).first()
+        if not surah:
+            title = f"Surah {surah_id}"
+            total_verses = verse_end
+            try:
+                response = requests.get(f"https://api.alquran.cloud/v1/surah/{surah_id}", timeout=5)
+                if response.status_code == 200:
+                    data = response.json().get('data', {})
+                    title = data.get('englishName', title)
+                    total_verses = data.get('numberOfAyahs', total_verses)
+            except Exception:
+                pass
+            surah, _ = Surah.objects.get_or_create(
+                id=surah_id,
+                defaults={
+                    'title': title,
+                    'total_verses': total_verses,
+                }
+            )
+
+        # Ensure all verses in the requested range exist in our database
+        for v_num in range(verse_start, verse_end + 1):
+            Verse.objects.get_or_create(
+                surah=surah,
+                verse_number=v_num,
+                defaults={
+                    'text': f"Ayah {v_num} of {surah.title}",
+                    'translation_en': f"Translation of Ayah {v_num}",
+                }
+            )
+
         user_progress, _ = UserProgress.objects.get_or_create(user=user)
 
         # 1. Register ReadVerse objects and compute points
