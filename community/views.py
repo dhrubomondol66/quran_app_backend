@@ -373,8 +373,15 @@ class DeleteCommunityView(APIView):
             raise ValidationError({"community": "This field is required."})
         community = get_object_or_404(CreateCommunity, pk=community_id)
         _require_owner(community, request.user)
+        
+        # Delete related notifications
+        from settings.models import Notification
+        Notification.objects.filter(extra_data__community_id=community.id).delete()
+        Notification.objects.filter(extra_data__community_id=str(community.id)).delete()
+        
         community.delete()
         return Response({"message": "Community deleted successfully"})
+
 
 
 class InviteMembersView(APIView):
