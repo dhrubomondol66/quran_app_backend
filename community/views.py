@@ -213,6 +213,32 @@ class JoinCommunityView(APIView):
             status=status.HTTP_201_CREATED,
         )
 
+    @swagger_auto_schema(
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['community'],
+            properties={
+                'community': openapi.Schema(type=openapi.TYPE_INTEGER, description='ID of the community to cancel join request'),
+            }
+        )
+    )
+    def delete(self, request):
+        community_id = request.data.get("community") or request.query_params.get("community")
+        if not community_id:
+            raise ValidationError({"community": "This field is required."})
+        community = get_object_or_404(CreateCommunity, pk=community_id)
+
+        deleted, _ = JoinRequest.objects.filter(
+            community=community,
+            user=request.user,
+            status='pending'
+        ).delete()
+
+        if not deleted:
+            raise NotFound("No pending join request found for this community.")
+
+        return Response({"message": "Join request cancelled successfully."}, status=status.HTTP_200_OK)
+
 
 class ListJoinRequestsView(APIView):
     permission_classes = [IsAuthenticated]

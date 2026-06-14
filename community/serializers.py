@@ -33,6 +33,7 @@ class CommunityListSerializer(serializers.ModelSerializer):
     members = serializers.SerializerMethodField()
     is_member = serializers.SerializerMethodField()
     is_owner = serializers.SerializerMethodField()
+    join_request_status = serializers.SerializerMethodField()
 
     class Meta:
         model = CreateCommunity
@@ -46,6 +47,7 @@ class CommunityListSerializer(serializers.ModelSerializer):
             "members",
             "is_member",
             "is_owner",
+            "join_request_status",
             "created_at",
             "updated_at",
         ]
@@ -88,6 +90,15 @@ class CommunityListSerializer(serializers.ModelSerializer):
     def get_is_owner(self, obj):
         user = self._request_user()
         return bool(user and user.is_authenticated and obj.user_id == user.id)
+
+    def get_join_request_status(self, obj):
+        user = self._request_user()
+        if not user or not user.is_authenticated:
+            return "none"
+        req = JoinRequest.objects.filter(community=obj, user=user).first()
+        if req and req.status == 'pending':
+            return 'pending'
+        return "none"
 
 
 class CommunityDetailSerializer(CommunityListSerializer):
