@@ -21,6 +21,7 @@ class UserManagementSerializer(serializers.ModelSerializer):
     password     = serializers.CharField(write_only=True, required=False, style={'input_type': 'password'})
     is_active    = serializers.BooleanField(source='user.is_active', read_only=True)
     date_joined  = serializers.DateTimeField(source='user.date_joined', read_only=True)
+    subscription_status = serializers.SerializerMethodField()
 
     class Meta:
         model  = UserManagement
@@ -30,6 +31,13 @@ class UserManagementSerializer(serializers.ModelSerializer):
             'actions',
             'created_at', 'updated_at',
         ]
+
+    def get_subscription_status(self, obj):
+        # Dynamically check if the user has an active subscription
+        sub = obj.user.subscription.filter(is_active=True).first()
+        if sub:
+            return sub.plan
+        return 'free'
 
 class ProfileSettingsSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(required=False)

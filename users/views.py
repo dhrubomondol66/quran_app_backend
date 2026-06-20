@@ -34,6 +34,21 @@ class RegisterView(generics.CreateAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
+        
+        # Send signup notification to admin users
+        try:
+            admins = User.objects.filter(is_admin=True)
+            from settings.notifications import send_push_notification
+            send_push_notification(
+                user_or_users=admins,
+                title="New User Registration",
+                body=f"User '{user.username}' ({user.email}) has registered a new account.",
+                notification_type='user_signup',
+                extra_data={'user_id': user.id, 'username': user.username, 'email': user.email}
+            )
+        except Exception as e:
+            print(f"Failed to send admin signup notification: {e}")
+
         refresh = RefreshToken.for_user(user)
         return Response({
             'message': 'Registration successful',

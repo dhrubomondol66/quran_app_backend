@@ -23,20 +23,21 @@ class OverviewView(APIView):
 
     def get(self, request):
         from django.contrib.auth import get_user_model
+        from subscriptions.models import Subscription, PaymentHistory
+        from django.db.models import Sum
         User = get_user_model()
 
         all_users = User.objects.filter(is_admin=False)
         total_users = all_users.count()
 
-        premium_users = UserManagement.objects.filter(
+        # Count premium users: non-admins who have a valid/active subscription
+        premium_users = Subscription.objects.filter(
             user__is_admin=False,
-            subscription_status='premium'
-        ).count()
+            is_active=True
+        ).values('user').distinct().count()
 
-        free_users = UserManagement.objects.filter(
-            user__is_admin=False,
-            subscription_status='free'
-        ).count()
+        # Free users: total non-admins minus premium users
+        free_users = max(0, total_users - premium_users)
 
         # Growth: compare this month's signups vs last month's
         now = timezone.now()
@@ -54,10 +55,12 @@ class OverviewView(APIView):
         else:
             user_growth = 100.0 if this_month_users > 0 else 0.0
 
-        # Revenue and earnings — update price per premium user to match your actual plan price
-        PREMIUM_PRICE = 9.99
-        revenue = round(premium_users * PREMIUM_PRICE)
-        total_earn = revenue  # adjust if you have a separate earnings model
+        # Calculate actual revenue from PaymentHistory
+        revenue_sum = PaymentHistory.objects.filter(
+            status='paid'
+        ).aggregate(total_rev=Sum('amount'))['total_rev'] or 0
+        revenue = round(float(revenue_sum))
+        total_earn = revenue
 
         data = {
             'total_users': total_users,
@@ -626,3 +629,26 @@ class AdminPaymentHistoryView(APIView):
         history = PaymentHistory.objects.all().select_related('user').order_by('-created_at')
         serializer = PaymentHistorySerializer(history, many=True)
         return Response(serializer.data)
+
+class AdminLeaderboardView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if not request.user.is_admin:
+            return Response({'error': 'Admin access required'}, status=status.HTTP_403_FORBIDDEN)
+
+        from progress.models import UserProgress
+        progress_qs = UserProgress.objects.select_related('user').filter(
+            user__is_admin=False
+        ).order_by('-points')
+
+        data = []
+        for p in progress_qs:
+            data.append({
+                'id': p.user.id,
+                'username': p.user.username,
+                'email': p.user.email,
+                'points': p.points,
+                'streak': p.reading_streak,
+            })
+        return Response(data)

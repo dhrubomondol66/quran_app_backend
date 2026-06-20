@@ -14,6 +14,7 @@ from .views import (
     AdminAddFeatureView,
     AdminAppRatingView,
     AdminPaymentHistoryView,
+    AdminLeaderboardView,
 )
 
 urlpatterns = [
@@ -30,6 +31,7 @@ urlpatterns = [
     path('feature-requests/',       AdminAddFeatureView.as_view(),        name='feature-requests'),
     path('ratings/',                AdminAppRatingView.as_view(),         name='ratings'),
     path('payment-history/',        AdminPaymentHistoryView.as_view(),    name='payment-history'),
+    path('leaderboard/',            AdminLeaderboardView.as_view(),       name='admin-leaderboard'),
 
     # Library
     path('library/',           LibraryContentView.as_view(),         name='library-list'),
