@@ -64,6 +64,19 @@ def stripe_webhook(request):
             plan=plan
         )
 
+        # Send Payment Success Email
+        try:
+            from users.email_service import send_payment_success_email_helper
+            send_payment_success_email_helper(
+                user=user,
+                plan_name=plan,
+                amount=obj.get("amount_total", 0) / 100,
+                transaction_id=obj.get("invoice", "") or f"sub_{stripe_sub_id}",
+                payment_method="Card"
+            )
+        except Exception as email_err:
+            print(f"Failed to send checkout session completed payment success email: {email_err}")
+
         try:
             from settings.notifications import send_push_notification
             admins = User.objects.filter(is_admin=True)
@@ -99,6 +112,18 @@ def stripe_webhook(request):
                     status="paid",
                     plan=sub.plan
                 )
+                # Send Payment Success Email
+                try:
+                    from users.email_service import send_payment_success_email_helper
+                    send_payment_success_email_helper(
+                        user=sub.user,
+                        plan_name=sub.plan,
+                        amount=obj.get("amount_paid", 0) / 100,
+                        transaction_id=obj.get("id", ""),
+                        payment_method="Card (Renewal)"
+                    )
+                except Exception as email_err:
+                    print(f"Failed to send renewal payment success email: {email_err}")
 
     # ── Payment failed → deactivate ─────────────────────────────────────────
     elif event_type == "invoice.payment_failed":

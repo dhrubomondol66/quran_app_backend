@@ -147,8 +147,9 @@ class ForgotPasswordView(APIView):
         # Generate password reset token
         token = default_token_generator.make_token(user)
         
-        # Get frontend URL from request or use default
-        frontend_url = request.data.get('frontend_url', 'http://localhost:3000')
+        # Get frontend URL from request or use environment variable / default
+        import os
+        frontend_url = request.data.get('frontend_url') or os.getenv('FRONTEND_URL', 'https://quran-admin-dashboard.onrender.com')
         
         # Send email via EmailJS
         email_sent = send_password_reset_email(user, token, frontend_url)

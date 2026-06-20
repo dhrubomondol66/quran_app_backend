@@ -353,7 +353,7 @@ class AdminForgotPasswordView(APIView):
         token = default_token_generator.make_token(admin_user)
 
         # Get frontend URL (admin dashboard URL)
-        frontend_url = request.data.get('frontend_url', 'http://localhost:3000')
+        frontend_url = request.data.get('frontend_url') or os.getenv('FRONTEND_URL', 'https://quran-admin-dashboard.onrender.com')
 
         # ← Use the same email service as users (sends full HTML email with button)
         email_sent = send_password_reset_email(

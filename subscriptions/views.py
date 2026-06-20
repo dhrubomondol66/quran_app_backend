@@ -246,6 +246,19 @@ class StripeWebhookView(APIView):
                     plan=sub.plan
                 )
 
+                # Send Payment Success Email
+                try:
+                    from users.email_service import send_payment_success_email_helper
+                    send_payment_success_email_helper(
+                        user=sub.user,
+                        plan_name=sub.plan,
+                        amount=amount,
+                        transaction_id=invoice.get("id", ""),
+                        payment_method="Card (Renewal)"
+                    )
+                except Exception as email_err:
+                    print(f"Failed to send webhook invoice.payment_succeeded payment success email: {email_err}")
+
                 try:
                     from django.contrib.auth import get_user_model
                     from settings.notifications import send_push_notification
@@ -491,6 +504,19 @@ class ConfirmPaymentView(APIView):
                         status="paid",
                         plan=plan_name
                     )
+
+                # Send Payment Success Email
+                try:
+                    from users.email_service import send_payment_success_email_helper
+                    send_payment_success_email_helper(
+                        user=request.user,
+                        plan_name=plan_name,
+                        amount=amount,
+                        transaction_id=invoice_id_str or sub_id,
+                        payment_method="Card"
+                    )
+                except Exception as email_err:
+                    print(f"Failed to send payment success email in ConfirmPaymentView: {email_err}")
 
                 return Response({
                     "status": "success",
