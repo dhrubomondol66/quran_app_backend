@@ -86,7 +86,7 @@ class UserManagementView(APIView):
         user_management_qs = UserManagement.objects.select_related('user').filter(
             user__is_admin=False
         )
-        serializer = UserManagementSerializer(user_management_qs, many=True)
+        serializer = UserManagementSerializer(user_management_qs, many=True, context={'request': request})
         return Response(serializer.data)
 
     def put(self, request, user_id):
