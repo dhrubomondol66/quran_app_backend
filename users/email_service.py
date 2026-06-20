@@ -75,6 +75,8 @@ class EmailJSService:
                 "accessToken": settings.EMAILJS_PRIVATE_KEY,
                 "template_params": {
                     "to_email": user_email,
+                    "user_email": user_email,
+                    "email": user_email,
                     "from_name": "Quran App",
                     "user_name": user_name,
                     "plan_name": plan_name,
