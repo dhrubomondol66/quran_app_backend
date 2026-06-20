@@ -644,11 +644,15 @@ class AdminLeaderboardView(APIView):
 
         data = []
         for p in progress_qs:
+            photo_url = None
+            if p.user.photo:
+                photo_url = request.build_absolute_uri(p.user.photo.url)
             data.append({
                 'id': p.user.id,
                 'username': p.user.username,
                 'email': p.user.email,
                 'points': p.points,
                 'streak': p.reading_streak,
+                'photo': photo_url,
             })
         return Response(data)

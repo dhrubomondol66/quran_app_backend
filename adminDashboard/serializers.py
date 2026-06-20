@@ -21,13 +21,13 @@ class UserManagementSerializer(serializers.ModelSerializer):
     password     = serializers.CharField(write_only=True, required=False, style={'input_type': 'password'})
     is_active    = serializers.BooleanField(source='user.is_active', read_only=True)
     date_joined  = serializers.DateTimeField(source='user.date_joined', read_only=True)
-    subscription_status = serializers.SerializerMethodField()
+    photo               = serializers.SerializerMethodField()
 
     class Meta:
         model  = UserManagement
         fields = [
             'id', 'name', 'email', 'password', 'is_active', 'date_joined',
-            'subscription_status',
+            'subscription_status', 'photo',
             'actions',
             'created_at', 'updated_at',
         ]
@@ -38,6 +38,12 @@ class UserManagementSerializer(serializers.ModelSerializer):
         if sub:
             return sub.plan
         return 'free'
+
+    def get_photo(self, obj):
+        request = self.context.get('request')
+        if obj.user.photo and request:
+            return request.build_absolute_uri(obj.user.photo.url)
+        return None
 
 class ProfileSettingsSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(required=False)
